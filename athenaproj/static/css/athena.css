@@ -47,3 +47,16 @@ a {
   border-right: 1px solid var(--athena-border);
   background: #fff;
 }
+
+.hero {
+  background: #e5f1ff;
+}
+
+.hero-content {
+  max-width: 760px;
+}
+
+.sticky-facts {
+  position: sticky;
+  top: 1rem;
+}
