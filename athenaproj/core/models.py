@@ -513,3 +513,27 @@ class PredictionLog(TimeStampedModel):
 
     def __str__(self):
         return f'{self.model_name} prediction for {self.participant or "removed participant"}'
+
+
+class Shortlist(TimeStampedModel):
+    participant = models.ForeignKey(
+        ParticipantProfile,
+        on_delete=models.CASCADE,
+        related_name='shortlists',
+    )
+    study = models.ForeignKey(
+        Study,
+        on_delete=models.CASCADE,
+        related_name='shortlists',
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['participant', 'study'],
+                name='unique_shortlist_pair',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.participant.code}: {self.study.title}'

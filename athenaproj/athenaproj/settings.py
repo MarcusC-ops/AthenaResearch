@@ -73,6 +73,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'adminpanel.context_processors.panel_notifications',
+                'storefront.context_processors.participant_shortlist',
             ],
         },
     },

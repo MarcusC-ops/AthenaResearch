@@ -1,0 +1,26 @@
+{% extends 'storefront/base_storefront.html' %}
+{% load athena_format %}
+
+{% block title %}Compare · Athena{% endblock %}
+{% block content %}
+<div class="container py-5">
+  <h1>Compare studies</h1>
+  <div class="table-responsive mt-4">
+    <table class="table align-middle">
+      <thead><tr><th></th>{% for study in studies %}<th><a href="{% url 'storefront:study_detail' study.slug %}">{{ study.title }}</a></th>{% endfor %}</tr></thead>
+      <tbody>
+        <tr><th>Category</th>{% for study in studies %}<td>{{ study.category.name }}</td>{% endfor %}</tr>
+        <tr><th>Study type</th>{% for study in studies %}<td>{{ study.get_study_type_display }}</td>{% endfor %}</tr>
+        <tr><th>Visits</th>{% for study in studies %}<td>{{ study.total_visits }}</td>{% endfor %}</tr>
+        <tr><th>Duration</th>{% for study in studies %}<td>{{ study.duration_weeks }} weeks</td>{% endfor %}</tr>
+        <tr><th>Visit times</th>{% for study in studies %}<td>{{ study.get_visit_times_display }}</td>{% endfor %}</tr>
+        <tr><th>Sites</th>{% for study in studies %}<td>{% for site in study.sites.all %}{% if not forloop.first %}, {% endif %}{{ site.name }}{% endfor %}</td>{% endfor %}</tr>
+        <tr><th>Compensation</th>{% for study in studies %}<td>{% if study.show_compensation %}{{ study.compensation_amount|money }}{% else %}Compensation for time and travel is provided{% endif %}</td>{% endfor %}</tr>
+        <tr><th>Who can take part</th>{% for study in studies %}<td class="small">Ages {{ study.min_age }} to {{ study.max_age }}<br>{{ study.get_sex_eligibility_display }}<br>{% if study.accepts_healthy_volunteers %}Healthy volunteers welcome{% else %}For people living with a health condition{% endif %}<br>{{ study.get_smoker_rule_display }}<br>{% if study.regions.exists %}{% for region in study.regions.all %}{% if not forloop.first %}, {% endif %}{{ region.name }}{% endfor %}{% else %}Anywhere in Singapore{% endif %}</td>{% endfor %}</tr>
+        <tr><th>Rating</th>{% for study in studies %}<td>No reviews yet</td>{% endfor %}</tr>
+      </tbody>
+    </table>
+  </div>
+  <a href="{% url 'storefront:shortlist' %}">Back to shortlist</a>
+</div>
+{% endblock %}

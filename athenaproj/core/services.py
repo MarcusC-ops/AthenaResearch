@@ -16,6 +16,7 @@ from .models import (
     ParticipantProfile,
     PredictionLog,
     Region,
+    Shortlist,
     StaffProfile,
     Study,
     StudyCategory,
@@ -47,6 +48,79 @@ def get_public_study(slug):
 
 def get_study(study_id):
     return Study.objects.get(pk=study_id)
+
+
+def add_to_shortlist(profile, study_id):
+    study = public_studies().get(pk=study_id)
+    shortlist, created = Shortlist.objects.get_or_create(
+        participant=profile,
+        study=study,
+    )
+    return shortlist, created
+
+
+def remove_from_shortlist(profile, study_id):
+    deleted, _ = Shortlist.objects.filter(
+        participant=profile,
+        study_id=study_id,
+    ).delete()
+    return deleted > 0
+
+
+def shortlist_for(profile):
+    shortlists = (
+        Shortlist.objects.filter(
+            participant=profile,
+            study__status__in=[Study.Status.PUBLISHED, Study.Status.FULL],
+        )
+        .select_related('study', 'study__category', 'study__organisation')
+        .prefetch_related(
+            'study__sites__region',
+            'study__required_conditions',
+            'study__excluded_conditions',
+            'study__regions',
+        )
+        .order_by('-created_at', '-id')
+    )
+    studies = []
+    for shortlist in shortlists:
+        study = shortlist.study
+        study.is_eligible = is_eligible(profile, study)
+        studies.append(study)
+    return studies
+
+
+def shortlist_count(profile):
+    return Shortlist.objects.filter(
+        participant=profile,
+        study__status__in=[Study.Status.PUBLISHED, Study.Status.FULL],
+    ).count()
+
+
+def compare_studies(profile, ids):
+    study_ids = [str(study_id) for study_id in ids]
+    if len(study_ids) not in (2, 3) or len(set(study_ids)) != len(study_ids):
+        raise ValueError('Choose two or three studies from your shortlist to compare')
+    shortlisted_ids = set(
+        Shortlist.objects.filter(
+            participant=profile,
+            study__status__in=[Study.Status.PUBLISHED, Study.Status.FULL],
+            study_id__in=study_ids,
+        ).values_list('study_id', flat=True)
+    )
+    if shortlisted_ids != {int(study_id) for study_id in study_ids}:
+        raise ValueError('Choose two or three studies from your shortlist to compare')
+    studies_by_id = Study.objects.filter(
+        pk__in=study_ids,
+        status__in=[Study.Status.PUBLISHED, Study.Status.FULL],
+    ).select_related('category', 'organisation').prefetch_related(
+        'sites__region',
+        'required_conditions',
+        'excluded_conditions',
+        'regions',
+    )
+    studies = {str(study.pk): study for study in studies_by_id}
+    return [studies[study_id] for study_id in study_ids]
 
 
 def search_studies(

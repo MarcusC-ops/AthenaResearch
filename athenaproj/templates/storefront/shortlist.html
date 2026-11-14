@@ -1,0 +1,38 @@
+{% extends 'storefront/base_storefront.html' %}
+{% load athena_format %}
+
+{% block title %}Shortlist · Athena{% endblock %}
+{% block content %}
+<div class="container py-5">
+  <div class="d-flex justify-content-between align-items-end mb-4">
+    <div><small>Shortlist</small><h1>My shortlist</h1><p class="mb-0">Studies you saved. Tick up to 3 to compare them side by side.</p></div>
+    <a class="btn btn-outline-primary" href="{% url 'storefront:studies' %}">Find more studies</a>
+  </div>
+  {% if studies %}
+    <form method="get" action="{% url 'storefront:shortlist_compare' %}">
+      {% for study in studies %}
+        <div class="card p-3 mb-3">
+          <div class="row align-items-center g-3">
+            <div class="col-auto"><input class="form-check-input" type="checkbox" name="ids" value="{{ study.id }}" id="study-{{ study.id }}"><label class="visually-hidden" for="study-{{ study.id }}">Select {{ study.title }}</label></div>
+            <div class="col">
+              <div><span class="badge text-bg-light">{{ study.category.name }}</span> <span class="badge text-bg-light">{% if study.status == 'full' %}Full{% else %}Open{% endif %}</span></div>
+              <h2 class="h5 mt-2 mb-1"><a href="{% url 'storefront:study_detail' study.slug %}">{{ study.title }}</a></h2>
+              <p class="small mb-1">{{ study.get_study_type_display }} · {{ study.total_visits }} visits · {{ study.duration_weeks }} weeks · {% if study.show_compensation %}{{ study.compensation_amount|money }}{% else %}Compensation for time and travel is provided{% endif %}</p>
+              <p class="small {% if study.is_eligible %}text-success{% else %}text-muted{% endif %} mb-0">{% if study.is_eligible %}You meet the basic criteria{% else %}You do not meet every basic criterion{% endif %}</p>
+            </div>
+            <div class="col-md-auto"><a class="btn btn-primary" href="{% url 'storefront:study_detail' study.slug %}">Apply</a><button class="btn btn-link" type="submit" form="remove-{{ study.id }}">Remove</button></div>
+          </div>
+        </div>
+      {% endfor %}
+      <div class="card p-3 d-flex flex-row justify-content-between align-items-center">
+        <span>Tick 2 or 3 studies above, then compare their visits, criteria and compensation.</span>
+        <button class="btn btn-primary" type="submit">Compare selected</button>
+      </div>
+    </form>
+    {% for study in studies %}<form id="remove-{{ study.id }}" method="post" action="{% url 'storefront:shortlist_remove' study.id %}">{% csrf_token %}<input type="hidden" name="next" value="{% url 'storefront:shortlist' %}"></form>{% endfor %}
+  {% else %}
+    <p>Your shortlist is empty. Browse studies and save the ones that interest you.</p>
+    <a href="{% url 'storefront:studies' %}">Browse studies</a>
+  {% endif %}
+</div>
+{% endblock %}

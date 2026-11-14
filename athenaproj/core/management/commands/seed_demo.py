@@ -17,6 +17,7 @@ from core.models import (
     Study,
     StudyCategory,
     ParticipantProfile,
+    Shortlist,
     StaffProfile,
 )
 from core.validators import normalise_sg_mobile
@@ -42,6 +43,7 @@ class Command(BaseCommand):
         studies = self.create_studies(organisations, categories, sites, regions, conditions)
         self.create_questions(studies)
         self.create_people(organisations, regions, conditions)
+        self.create_shortlists(studies)
 
         for label, model in (
             ('Regions', Region),
@@ -56,6 +58,24 @@ class Command(BaseCommand):
         self.stdout.write(
             f"Demo password: {os.environ.get('ATHENA_DEMO_PASSWORD', 'AthenaDemo2026!')}"
         )
+
+    def create_shortlists(self, studies):
+        profile = ParticipantProfile.objects.get(user__username='aisyah@example.com')
+        selected_studies = [
+            studies[title] for title in (
+            'A Good Night in the City',
+            'Understanding Eczema in Humid Weather',
+            'Stress, Rest and Resilience',
+            )
+        ]
+        Shortlist.objects.filter(
+            participant=profile,
+        ).exclude(study__in=selected_studies).delete()
+        for study in selected_studies:
+            Shortlist.objects.get_or_create(
+                participant=profile,
+                study=study,
+            )
 
     def create_people(self, organisations, regions, conditions):
         password = os.environ.get('ATHENA_DEMO_PASSWORD', 'AthenaDemo2026!')
