@@ -2,6 +2,8 @@ from django.core.paginator import Paginator
 from django.http import Http404
 from django.contrib import messages
 from django.shortcuts import redirect, render
+from django.urls import reverse
+from django.views.decorators.http import require_POST
 
 from core.models import Study
 from core.services import (
@@ -14,6 +16,10 @@ from core.services import (
     profile_ready,
     refresh_interest_predictions,
     save_profile,
+    add_to_shortlist,
+    compare_studies,
+    remove_from_shortlist,
+    shortlist_for,
 )
 
 from .forms import StudyFilterForm
@@ -67,7 +73,81 @@ def study_detail(request, slug):
         study = get_public_study(slug)
     except Study.DoesNotExist:
         raise Http404
-    return render(request, 'storefront/study_detail.html', {'study': study})
+    is_shortlisted = (
+        request.user.is_authenticated
+        and hasattr(request.user, 'participant_profile')
+        and study.shortlists.filter(
+            participant=request.user.participant_profile
+        ).exists()
+    )
+    return render(
+        request,
+        'storefront/study_detail.html',
+        {'study': study, 'is_shortlisted': is_shortlisted},
+    )
+
+
+def _safe_next(request, fallback):
+    next_url = request.POST.get('next', '')
+    if next_url.startswith('/') and not next_url.startswith('//'):
+        return next_url
+    return fallback
+
+
+@participant_required
+def shortlist(request):
+    profile = request.user.participant_profile
+    return render(request, 'storefront/shortlist.html', {
+        'studies': shortlist_for(profile),
+    })
+
+
+@require_POST
+@participant_required
+def shortlist_add(request, study_id):
+    study = Study.objects.filter(pk=study_id).first()
+    fallback = (
+        reverse('storefront:study_detail', kwargs={'slug': study.slug})
+        if study is not None else '/shortlist/'
+    )
+    try:
+        _, created = add_to_shortlist(request.user.participant_profile, study_id)
+    except Study.DoesNotExist:
+        return redirect(_safe_next(request, fallback))
+    messages.success(
+        request,
+        'Saved to your shortlist.' if created else 'Already on your shortlist.',
+    )
+    return redirect(_safe_next(request, fallback))
+
+
+@require_POST
+@participant_required
+def shortlist_remove(request, study_id):
+    remove_from_shortlist(request.user.participant_profile, study_id)
+    messages.success(request, 'Removed from your shortlist.')
+    study = Study.objects.filter(pk=study_id).first()
+    fallback = (
+        reverse('storefront:study_detail', kwargs={'slug': study.slug})
+        if study is not None else '/shortlist/'
+    )
+    return redirect(_safe_next(request, fallback))
+
+
+@participant_required
+def shortlist_compare(request):
+    try:
+        studies = compare_studies(
+            request.user.participant_profile,
+            request.GET.getlist('ids'),
+        )
+    except ValueError:
+        messages.error(
+            request,
+            'Choose two or three studies from your shortlist to compare',
+        )
+        return redirect('/shortlist/')
+    return render(request, 'storefront/compare.html', {'studies': studies})
 
 
 def support(request):
