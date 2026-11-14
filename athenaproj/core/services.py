@@ -1,5 +1,6 @@
 """All Athena business logic lives here. Views call these functions."""
 
+from dataclasses import dataclass
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
@@ -217,3 +218,90 @@ def sign_in_check(email, password):
             return None, 'Your research team account is waiting for approval.'
         return None, 'This account is switched off. Contact Athena.'
     return user, None
+
+
+@dataclass(frozen=True)
+class RuleResult:
+    code: str
+    label: str
+    detail: str
+    met: bool
+
+
+def save_profile(profile, form):
+    was_complete = profile_ready(profile)
+    profile = form.save()
+    if not was_complete:
+        profile.onboarding_completed_at = timezone.now()
+        profile.save(update_fields=['onboarding_completed_at', 'updated_at'])
+    return profile
+
+
+def check_eligibility(profile, study):
+    results = [
+        RuleResult(
+            'age', 'Age',
+            f'Ages {study.min_age} to {study.max_age} (you are {profile.age}).',
+            profile.age is not None and study.min_age <= profile.age <= study.max_age,
+        ),
+        RuleResult(
+            'sex', 'Sex', study.SexEligibility(study.sex_eligibility).label,
+            study.sex_eligibility == study.SexEligibility.ALL
+            or study.sex_eligibility == profile.sex,
+        ),
+        RuleResult(
+            'health', 'Health',
+            'Healthy volunteers are welcome'
+            if study.accepts_healthy_volunteers
+            else 'For people living with a health condition.',
+            study.accepts_healthy_volunteers or profile.conditions.exists(),
+        ),
+    ]
+    required = list(study.required_conditions.all())
+    excluded = list(study.excluded_conditions.all())
+    if required:
+        results.append(RuleResult(
+            'required_conditions', 'Must have',
+            ', '.join(condition.name for condition in required),
+            profile.conditions.filter(pk__in=[condition.pk for condition in required]).exists(),
+        ))
+    if excluded:
+        results.append(RuleResult(
+            'excluded_conditions', 'Not suitable if you have',
+            ', '.join(condition.name for condition in excluded),
+            not profile.conditions.filter(pk__in=[condition.pk for condition in excluded]).exists(),
+        ))
+    results.append(RuleResult(
+        'smoking', 'Smoking', study.SmokerRule(study.smoker_rule).label,
+        study.smoker_rule == study.SmokerRule.ANY
+        or (study.smoker_rule == study.SmokerRule.SMOKERS and profile.smoker)
+        or (study.smoker_rule == study.SmokerRule.NON_SMOKERS and not profile.smoker),
+    ))
+    if study.min_bmi is not None or study.max_bmi is not None:
+        minimum = study.min_bmi if study.min_bmi is not None else 'no minimum'
+        maximum = study.max_bmi if study.max_bmi is not None else 'no maximum'
+        results.append(RuleResult(
+            'bmi', 'BMI', f'BMI {minimum} to {maximum} (yours is {profile.bmi}).',
+            profile.bmi is not None
+            and (study.min_bmi is None or profile.bmi >= study.min_bmi)
+            and (study.max_bmi is None or profile.bmi <= study.max_bmi),
+        ))
+    regions = list(study.regions.all())
+    if regions:
+        results.append(RuleResult(
+            'region', 'Where you live', ', '.join(region.name for region in regions),
+            profile.region_id in {region.pk for region in regions},
+        ))
+    return results
+
+
+def is_eligible(profile, study):
+    return all(result.met for result in check_eligibility(profile, study))
+
+
+def eligible_studies(profile):
+    return [study for study in public_studies() if is_eligible(profile, study)]
+
+
+def profile_ready(profile):
+    return profile.onboarding_completed_at is not None

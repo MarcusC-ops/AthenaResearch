@@ -1,0 +1,45 @@
+{% extends 'storefront/base_storefront.html' %}
+{% block title %}{% if editing %}Edit your profile{% else %}Tell us about yourself the first time{% endif %}{% endblock %}
+{% block content %}
+<div class="container py-5 form-narrow">
+  <div class="d-flex justify-content-between align-items-start">
+    <div>
+      <h1>{% if editing %}Edit your profile{% else %}Tell us about yourself the first time{% endif %}</h1>
+      {% if editing %}<p>Keep your answers up to date.</p>{% endif %}
+    </div>
+    {% if editing %}<a class="btn btn-outline-primary btn-sm" href="/account/">Back to profile</a>{% endif %}
+  </div>
+  <form method="post" novalidate>{% csrf_token %}
+    {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
+    <div class="card p-4 mt-4">
+      <h2 class="h4">About you</h2><p class="text-muted">Used for age, sex and location rules.</p>
+      {% include 'storefront/_profile_field.html' with field=form.date_of_birth %}
+      {% include 'storefront/_profile_field.html' with field=form.sex %}
+      {% include 'storefront/_profile_field.html' with field=form.region %}
+      {% include 'storefront/_profile_field.html' with field=form.ethnicity %}
+      {% include 'storefront/_profile_field.html' with field=form.employment %}
+      {% include 'storefront/_profile_field.html' with field=form.education %}
+    </div>
+    <div class="card p-4 mt-4">
+      <h2 class="h4">Health basics</h2><p class="text-muted">Only used to check which studies you can join.</p>
+      {% include 'storefront/_profile_field.html' with field=form.height_cm %}
+      {% include 'storefront/_profile_field.html' with field=form.weight_kg %}
+      {% include 'storefront/_profile_field.html' with field=form.activity_level %}
+      {% include 'storefront/_profile_field.html' with field=form.smoker %}
+      {% include 'storefront/_profile_field.html' with field=form.conditions %}
+      {% if editing and form.instance.bmi %}<p>Your BMI: {{ form.instance.bmi }}</p>{% endif %}
+      <p class="small text-muted">Leave everything unticked if none apply.</p>
+    </div>
+    <div class="card p-4 mt-4">
+      <h2 class="h4">Preferences and consents</h2>
+      {% include 'storefront/_profile_field.html' with field=form.motivation %}
+      {% include 'storefront/_profile_field.html' with field=form.availability %}
+      {% include 'storefront/_profile_field.html' with field=form.max_travel_minutes %}
+      {% include 'storefront/_profile_field.html' with field=form.consent_matching %}
+      {% include 'storefront/_profile_field.html' with field=form.consent_insights %}
+      {% include 'storefront/_profile_field.html' with field=form.consent_contact %}
+    </div>
+    <button class="btn btn-primary mt-4" type="submit">{% if editing %}Save changes{% else %}Save and see my studies{% endif %}</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,6 +1,7 @@
 from django import forms
+from django.utils import timezone
 
-from core.models import Study, StudyCategory
+from core.models import Condition, ParticipantProfile, Study, StudyCategory
 from core.services import list_regions
 
 
@@ -78,3 +79,74 @@ class StudyFilterForm(forms.Form):
         self.fields['region'].choices = [('', 'Anywhere')] + list(
             list_regions().values_list('code', 'name')
         )
+
+
+class ProfileForm(forms.ModelForm):
+    class Meta:
+        model = ParticipantProfile
+        fields = [
+            'date_of_birth', 'sex', 'region', 'ethnicity', 'employment',
+            'education', 'height_cm', 'weight_kg', 'activity_level', 'smoker',
+            'conditions', 'motivation', 'availability', 'max_travel_minutes',
+            'consent_matching', 'consent_insights', 'consent_contact',
+        ]
+        widgets = {
+            'date_of_birth': forms.DateInput(attrs={'type': 'date'}),
+            'sex': forms.RadioSelect,
+            'height_cm': forms.NumberInput(attrs={'min': '120', 'max': '220', 'step': '0.1'}),
+            'weight_kg': forms.NumberInput(attrs={'min': '30', 'max': '250', 'step': '0.1'}),
+            'conditions': forms.CheckboxSelectMultiple,
+        }
+        labels = {
+            'date_of_birth': 'Date of birth',
+            'sex': 'Sex',
+            'region': 'Region',
+            'ethnicity': 'Ethnicity (optional)',
+            'employment': 'Employment',
+            'education': 'Highest education',
+            'height_cm': 'Height (cm)',
+            'weight_kg': 'Weight (kg)',
+            'activity_level': 'Activity level',
+            'smoker': 'Smoker',
+            'conditions': 'Known health conditions',
+            'motivation': 'What matters most to you?',
+            'availability': 'When are you usually free?',
+            'max_travel_minutes': 'How far would you travel?',
+            'consent_matching': 'Use my profile to recommend studies to me',
+            'consent_insights': 'Include my answers in anonymised insights for research teams',
+            'consent_contact': 'Research teams may contact me about studies I apply to',
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field_name in (
+            'date_of_birth', 'sex', 'region', 'employment', 'height_cm',
+            'weight_kg', 'activity_level', 'motivation', 'availability',
+            'max_travel_minutes',
+        ):
+            self.fields[field_name].required = True
+        self.fields['conditions'].queryset = Condition.objects.filter(
+            is_active=True
+        ).order_by('name')
+        self.fields['height_cm'].validators = []
+        self.fields['weight_kg'].validators = []
+
+    def clean_date_of_birth(self):
+        value = self.cleaned_data['date_of_birth']
+        today = timezone.localdate()
+        age = today.year - value.year - ((today.month, today.day) < (value.month, value.day))
+        if age < 21:
+            raise forms.ValidationError('You must be at least 21 to join Athena.')
+        return value
+
+    def clean_height_cm(self):
+        value = self.cleaned_data['height_cm']
+        if value < 120 or value > 220:
+            raise forms.ValidationError('Enter a height between 120 and 220 cm.')
+        return value
+
+    def clean_weight_kg(self):
+        value = self.cleaned_data['weight_kg']
+        if value < 30 or value > 250:
+            raise forms.ValidationError('Enter a weight between 30 and 250 kg.')
+        return value

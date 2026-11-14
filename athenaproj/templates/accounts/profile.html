@@ -1,3 +1,22 @@
 {% extends 'storefront/base_storefront.html' %}
 {% block title %}Your profile{% endblock %}
-{% block content %}<div class="container py-5 form-narrow"><h1>Your profile</h1><p>{{ user.get_full_name }}</p><p>{{ user.email }}</p><p>{{ profile.mobile }}</p><div class="card p-4 mt-4"><p>Complete your profile so we can show you studies you qualify for</p><a class="btn btn-primary" href="/onboarding/">Complete your profile</a></div></div>{% endblock %}
+{% block content %}
+<div class="container py-5">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Your profile</h1>
+    <div class="d-flex gap-2">
+      <a class="btn btn-primary" href="/onboarding/">Edit profile</a>
+      <form method="post" action="/accounts/logout/">{% csrf_token %}<button class="btn btn-outline-primary" type="submit">Sign out</button></form>
+    </div>
+  </div>
+  {% if not profile.onboarding_completed_at %}
+    <div class="card p-4"><p>Complete your profile so we can show you studies you qualify for</p><a class="btn btn-primary" href="/onboarding/">Complete your profile</a></div>
+  {% else %}
+    <div class="row g-4">
+      <div class="col-lg-4"><div class="card p-4"><h2 class="h4">About you</h2><p>{{ profile.date_of_birth }}<br>{{ profile.get_sex_display }}<br>{{ profile.region.name }}<br>{{ profile.get_ethnicity_display }}<br>{{ profile.get_employment_display }}<br>{{ profile.get_education_display }}</p></div></div>
+      <div class="col-lg-4"><div class="card p-4"><h2 class="h4">Health basics</h2><p>Height: {{ profile.height_cm }} cm<br>Weight: {{ profile.weight_kg }} kg<br>BMI {{ profile.bmi }}<br>{{ profile.get_activity_level_display }}<br>Smoker: {% if profile.smoker %}Yes{% else %}No{% endif %}</p><p>Known health conditions:<br>{% for condition in profile.conditions.all %}{{ condition.name }}{% if not forloop.last %}, {% endif %}{% empty %}None{% endfor %}</p></div></div>
+      <div class="col-lg-4"><div class="card p-4"><h2 class="h4">Preferences and consents</h2><p>{{ profile.get_motivation_display }}<br>{{ profile.get_availability_display }}<br>{{ profile.get_max_travel_minutes_display }}</p><p>Matching: {% if profile.consent_matching %}Yes{% else %}No{% endif %}<br>Insights: {% if profile.consent_insights %}Yes{% else %}No{% endif %}<br>Contact: {% if profile.consent_contact %}Yes{% else %}No{% endif %}</p></div></div>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

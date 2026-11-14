@@ -1,6 +1,7 @@
 from django.core.paginator import Paginator
 from django.http import Http404
-from django.shortcuts import render
+from django.contrib import messages
+from django.shortcuts import redirect, render
 
 from core.models import Study
 from core.services import (
@@ -11,6 +12,8 @@ from core.services import (
 )
 
 from .forms import StudyFilterForm
+from .forms import ProfileForm
+from .decorators import participant_required
 
 
 def home(request):
@@ -87,3 +90,20 @@ def support(request):
         ),
     ]
     return render(request, 'storefront/support.html', {'faq_items': faq_items})
+
+
+@participant_required
+def onboarding(request):
+    profile = request.user.participant_profile
+    form = ProfileForm(request.POST or None, instance=profile)
+    if request.method == 'POST' and form.is_valid():
+        from core.services import profile_ready, save_profile
+        was_ready = profile_ready(profile)
+        save_profile(profile, form)
+        messages.success(
+            request, 'Your profile is updated.' if was_ready else 'Your profile is saved.'
+        )
+        return redirect('/account/')
+    return render(request, 'storefront/onboarding.html', {
+        'form': form, 'editing': profile.onboarding_completed_at is not None,
+    })
