@@ -3,6 +3,11 @@
   <div><span class="badge text-bg-light">{{ study.category.name }}</span></div>
   <h3 class="h5 mt-3"><a href="{% url 'storefront:study_detail' study.slug %}" class="text-decoration-none">{{ study.title }}</a></h3>
   <p>{{ study.description|truncatechars:120 }}</p>
+  {% if reasons %}
+    <ul class="small ps-3 mb-3">
+      {% for reason in reasons %}<li>{{ reason }}</li>{% endfor %}
+    </ul>
+  {% endif %}
   <div class="small text-muted mt-auto">
     {% regroup study.sites.all by region.name as region_list %}
     {% for region in region_list %}{% if not forloop.first %}, {% endif %}{{ region.grouper }}{% endfor %}

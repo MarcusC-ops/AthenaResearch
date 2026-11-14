@@ -143,6 +143,8 @@ class Command(BaseCommand):
                     ])
                 else:
                     profile.conditions.clear()
+                from core.services import refresh_interest_predictions
+                refresh_interest_predictions(profile)
             else:
                 StaffProfile.objects.update_or_create(
                     user=user,

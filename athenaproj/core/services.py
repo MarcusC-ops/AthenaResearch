@@ -1,6 +1,7 @@
 """All Athena business logic lives here. Views call these functions."""
 
 from dataclasses import dataclass
+from datetime import timedelta
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
@@ -13,6 +14,7 @@ from .models import (
     Notification,
     Organisation,
     ParticipantProfile,
+    PredictionLog,
     Region,
     StaffProfile,
     Study,
@@ -305,3 +307,97 @@ def eligible_studies(profile):
 
 def profile_ready(profile):
     return profile.onboarding_completed_at is not None
+
+
+def refresh_interest_predictions(profile):
+    if not profile.consent_matching:
+        profile.ml1_categories = []
+        profile.ml1_model_version = ''
+        profile.ml1_predicted_at = None
+        profile.save(update_fields=[
+            'ml1_categories', 'ml1_model_version', 'ml1_predicted_at', 'updated_at',
+        ])
+        return None
+
+    from ml.services import predict_interest
+
+    result = predict_interest(profile)
+    if result is None:
+        profile.ml1_categories = []
+        profile.ml1_model_version = ''
+        profile.ml1_predicted_at = None
+        profile.save(update_fields=[
+            'ml1_categories', 'ml1_model_version', 'ml1_predicted_at', 'updated_at',
+        ])
+        return None
+
+    profile.ml1_categories = [item['category'] for item in result['top_three']]
+    profile.ml1_model_version = result['model_version']
+    profile.ml1_predicted_at = timezone.now()
+    profile.save(update_fields=[
+        'ml1_categories', 'ml1_model_version', 'ml1_predicted_at', 'updated_at',
+    ])
+    return result
+
+
+def _feed_reasons(profile, study, category_position):
+    reasons = []
+    if category_position == 0:
+        reasons.append(f'Matches your interest in {study.category.name}')
+    elif category_position in (1, 2):
+        reasons.append(f'Related to your interest in {study.category.name}')
+    if len(reasons) < 3:
+        reasons.append('You meet the age and health criteria')
+    if len(reasons) < 3 and study.sites.filter(region=profile.region).exists():
+        reasons.append(f'Site in the {profile.region.name} region')
+    if len(reasons) < 3 and study.recruitment_deadline <= timezone.localdate() + timedelta(days=14):
+        reasons.append('Closing soon')
+    return reasons[:3]
+
+
+def for_you_feed(profile):
+    if not profile.consent_matching or not profile.ml1_categories:
+        return {
+            'mode': 'popular',
+            'notice': (
+                'Turn on recommendations in your profile to see studies picked for you.'
+                if not profile.consent_matching
+                else 'We could not pick studies for you just now, so here are popular studies.'
+            ),
+            'items': [
+                {'study': study, 'reasons': []}
+                for study in popular_studies(12)
+                if is_eligible(profile, study)
+            ] or [
+                {'study': study, 'reasons': []}
+                for study in popular_studies(12)
+            ],
+        }
+
+    category_positions = {
+        label: position for position, label in enumerate(profile.ml1_categories)
+    }
+    eligible = eligible_studies(profile)
+    eligible.sort(key=lambda study: (
+        category_positions.get(study.category.ml_label, 3),
+        0 if study.sites.filter(region=profile.region).exists() else 1,
+        study.recruitment_deadline,
+    ))
+    return {
+        'mode': 'personal',
+        'notice': '',
+        'items': [
+            {
+                'study': study,
+                'reasons': _feed_reasons(
+                    profile, study, category_positions.get(study.category.ml_label, 3)
+                ),
+            }
+            for study in eligible[:24]
+        ],
+    }
+
+
+def personal_row(profile):
+    feed = for_you_feed(profile)
+    return feed['items'][:3] if feed['mode'] == 'personal' else []

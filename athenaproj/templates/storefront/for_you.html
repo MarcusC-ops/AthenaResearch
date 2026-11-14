@@ -1,0 +1,28 @@
+{% extends 'storefront/base_storefront.html' %}
+
+{% block title %}For you · Athena{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <small class="text-uppercase">For you</small>
+  <h1>Studies picked for you</h1>
+  <p>Ordered by what we think interests you most, then by sites near you. You meet the basic criteria for every study on this page.</p>
+  {% if notice %}
+    <div class="alert alert-info mt-4">
+      {{ notice }}
+      {% if mode == 'popular' and not request.user.participant_profile.consent_matching %}
+        <a href="/account/">Edit profile</a>
+      {% endif %}
+    </div>
+  {% endif %}
+  <div class="row g-3 mt-4">
+    {% for item in items %}
+      <div class="col-md-6 col-lg-4">
+        {% include 'storefront/_study_card.html' with study=item.study reasons=item.reasons %}
+      </div>
+    {% empty %}
+      <p>No public studies are available yet.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

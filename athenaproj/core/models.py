@@ -434,6 +434,9 @@ class ParticipantProfile(TimeStampedModel):
     consent_matching = models.BooleanField(default=False)
     consent_insights = models.BooleanField(default=False)
     consent_contact = models.BooleanField(default=False)
+    ml1_categories = models.JSONField(default=list, blank=True)
+    ml1_model_version = models.CharField(max_length=50, blank=True)
+    ml1_predicted_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f'{self.user.get_full_name()} profile'
@@ -487,3 +490,26 @@ class Notification(TimeStampedModel):
 
     def __str__(self):
         return self.message
+
+
+class PredictionLog(TimeStampedModel):
+    class ModelName(models.TextChoices):
+        ML1 = 'ml1', 'ML-1'
+        ML2 = 'ml2', 'ML-2'
+
+    model_name = models.CharField(max_length=3, choices=ModelName.choices)
+    model_version = models.CharField(max_length=50)
+    participant = models.ForeignKey(
+        ParticipantProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='prediction_logs',
+    )
+    features = models.JSONField(default=dict)
+    output = models.JSONField(default=dict)
+    succeeded = models.BooleanField()
+    error_message = models.TextField(blank=True)
+
+    def __str__(self):
+        return f'{self.model_name} prediction for {self.participant or "removed participant"}'

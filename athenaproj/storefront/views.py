@@ -9,6 +9,11 @@ from core.services import (
     get_public_study,
     popular_studies,
     search_studies,
+    for_you_feed,
+    personal_row,
+    profile_ready,
+    refresh_interest_predictions,
+    save_profile,
 )
 
 from .forms import StudyFilterForm
@@ -17,10 +22,21 @@ from .decorators import participant_required
 
 
 def home(request):
+    personal_items = []
+    if (
+        request.user.is_authenticated
+        and hasattr(request.user, 'participant_profile')
+        and profile_ready(request.user.participant_profile)
+    ):
+        personal_items = personal_row(request.user.participant_profile)
     return render(
         request,
         'storefront/home.html',
-        {'category_tiles': category_tiles(), 'popular_studies': popular_studies()},
+        {
+            'category_tiles': category_tiles(),
+            'popular_studies': popular_studies(),
+            'personal_items': personal_items,
+        },
     )
 
 
@@ -97,13 +113,22 @@ def onboarding(request):
     profile = request.user.participant_profile
     form = ProfileForm(request.POST or None, instance=profile)
     if request.method == 'POST' and form.is_valid():
-        from core.services import profile_ready, save_profile
         was_ready = profile_ready(profile)
         save_profile(profile, form)
+        refresh_interest_predictions(profile)
         messages.success(
             request, 'Your profile is updated.' if was_ready else 'Your profile is saved.'
         )
-        return redirect('/account/')
+        return redirect('/for-you/' if not was_ready else '/account/')
     return render(request, 'storefront/onboarding.html', {
         'form': form, 'editing': profile.onboarding_completed_at is not None,
     })
+
+
+@participant_required
+def for_you(request):
+    profile = request.user.participant_profile
+    if not profile_ready(profile):
+        messages.info(request, 'Complete your profile first.')
+        return redirect('/onboarding/')
+    return render(request, 'storefront/for_you.html', for_you_feed(profile))
