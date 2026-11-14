@@ -1,0 +1,3 @@
+{% extends 'base.html' %}
+{% block title %}Panel sign-in{% endblock %}
+{% block body %}<div class="container py-5 form-narrow"><h1>Athena panel</h1>{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}<form method="post">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}"><div class="mb-3"><label class="form-label">Email</label><input class="form-control" type="email" name="email" required></div><div class="mb-3"><label class="form-label">Password</label><input class="form-control" type="password" name="password" required></div><button class="btn btn-primary" type="submit">Sign in to the panel</button></form></div>{% endblock %}

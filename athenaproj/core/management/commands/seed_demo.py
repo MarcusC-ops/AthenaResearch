@@ -1,9 +1,11 @@
 """Create the realistic, repeatable Athena demonstration catalogue."""
 
 import calendar
+import os
 from datetime import timedelta
 
 from django.core.management.base import BaseCommand
+from django.contrib.auth.models import Group, User
 from django.utils import timezone
 
 from core.models import (
@@ -14,7 +16,10 @@ from core.models import (
     Site,
     Study,
     StudyCategory,
+    ParticipantProfile,
+    StaffProfile,
 )
+from core.validators import normalise_sg_mobile
 
 
 def add_months(value, months):
@@ -36,6 +41,7 @@ class Command(BaseCommand):
         sites = self.create_sites(organisations, regions)
         studies = self.create_studies(organisations, categories, sites, regions, conditions)
         self.create_questions(studies)
+        self.create_people(organisations)
 
         for label, model in (
             ('Regions', Region),
@@ -47,6 +53,55 @@ class Command(BaseCommand):
             ('Pre-screen questions', PreScreenQuestion),
         ):
             self.stdout.write(f'{label}: {model.objects.count()}')
+        self.stdout.write(
+            f"Demo password: {os.environ.get('ATHENA_DEMO_PASSWORD', 'AthenaDemo2026!')}"
+        )
+
+    def create_people(self, organisations):
+        password = os.environ.get('ATHENA_DEMO_PASSWORD', 'AthenaDemo2026!')
+        people = [
+            ('Aisyah', 'Rahman', 'aisyah@example.com', 'Participant', None, '', '9123 4567', True),
+            ('Tan Ah', 'Kow', 'mrtan@example.com', 'Participant', None, '', '8123 4567', True),
+            ('Daniel', 'Lim', 'drlim@kentridge-crc.sg', 'Coordinator', organisations['Kent Ridge Clinical Research Centre'], 'Clinical research coordinator', '9123 4567', True),
+            ('Priya', 'Nair', 'priya@athena.sg', 'Staff', None, 'Operations executive', '9123 4567', True),
+            ('Wei Ling', 'Tan', 'admin@athena.sg', 'Admin', None, 'Platform admin', '9123 4567', True),
+            ('Nurul', 'Huda', 'nurul@harbourfront.sg', 'Coordinator', organisations['Harbourfront General Hospital'], '', '9123 4567', False),
+        ]
+        for first_name, last_name, email, group_name, organisation, job_title, mobile, active in people:
+            user, _ = User.objects.get_or_create(
+                username=email,
+                defaults={
+                    'email': email,
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'is_active': active,
+                },
+            )
+            user.email = email
+            user.first_name = first_name
+            user.last_name = last_name
+            user.is_active = active
+            user.set_password(password)
+            user.save()
+            user.groups.set([Group.objects.get(name=group_name)])
+            if group_name == 'Participant':
+                ParticipantProfile.objects.update_or_create(
+                    user=user,
+                    defaults={
+                        'mobile': normalise_sg_mobile(mobile),
+                        'terms_accepted_at': user.date_joined,
+                        'onboarding_completed_at': None,
+                    },
+                )
+            else:
+                StaffProfile.objects.update_or_create(
+                    user=user,
+                    defaults={
+                        'organisation': organisation,
+                        'job_title': job_title,
+                        'mobile': normalise_sg_mobile(mobile),
+                    },
+                )
 
     def create_regions(self):
         values = [

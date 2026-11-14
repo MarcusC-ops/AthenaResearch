@@ -1,0 +1,22 @@
+{% extends 'storefront/base_storefront.html' %}
+{% block title %}Create your account{% endblock %}
+{% block content %}
+<div class="container py-5 form-narrow">
+  <h1>Create your account</h1>
+  <div class="d-flex gap-2 my-4">
+    <a class="btn {% if audience == 'participant' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="?as=participant">Participant</a>
+    <a class="btn {% if audience == 'researcher' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="?as=researcher">Researcher</a>
+  </div>
+  <p>{% if audience == 'participant' %}Find research studies that fit your life.{% else %}For research teams listing studies on Athena.{% endif %}</p>
+  <form method="post" novalidate>{% csrf_token %}
+    {% for field in form %}
+      <div class="mb-3">
+        <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
+        {{ field }}
+        {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+      </div>
+    {% endfor %}
+    <button class="btn btn-primary" type="submit">Create account</button>
+  </form>
+</div>
+{% endblock %}

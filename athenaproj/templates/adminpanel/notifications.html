@@ -1,0 +1,3 @@
+{% extends 'adminpanel/base_panel.html' %}
+{% block title %}Notifications{% endblock %}
+{% block content %}<div class="container-fluid"><div class="d-flex justify-content-between"><h1>Notifications</h1><form method="post" action="/panel/notifications/read/">{% csrf_token %}<button class="btn btn-outline-primary" type="submit">Mark all as read</button></form></div>{% for notification in notifications %}<div class="py-3 border-bottom {% if not notification.is_read %}fw-bold{% endif %}"><small>{{ notification.created_at|date:"j M Y, H:i" }}</small><div>{{ notification.message }} {% if notification.link %}<a href="{{ notification.link }}">Open</a>{% endif %}</div></div>{% empty %}<p class="mt-4">You have no notifications.</p>{% endfor %}</div>{% endblock %}
