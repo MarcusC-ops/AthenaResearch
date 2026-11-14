@@ -1,0 +1,14 @@
+{% extends 'storefront/base_storefront.html' %}
+
+{% block title %}Questions and answers · Athena{% endblock %}
+{% block content %}
+<div class="container py-5">
+  <h1>Questions and answers.</h1>
+  <div class="accordion mt-4" id="faq">
+    {% for question, answer in faq_items %}
+      <div class="accordion-item"><h2 class="accordion-header" id="heading-{{ forloop.counter }}"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#answer-{{ forloop.counter }}">{{ question }}</button></h2><div id="answer-{{ forloop.counter }}" class="accordion-collapse collapse" data-bs-parent="#faq"><div class="accordion-body">{{ answer }}</div></div></div>
+    {% endfor %}
+  </div>
+  <p class="mt-4">Still need help? Sign in and use Contact us on your application page.</p>
+</div>
+{% endblock %}
