@@ -3,14 +3,25 @@
 {% block body %}
   <div class="athena-panel-shell">
     <header class="athena-topbar">
-      <div class="d-flex align-items-center">
+      <div class="d-flex align-items-center justify-content-between">
         <span class="wordmark text-white">Athena</span>
         <span class="ms-3 border border-white rounded-pill px-2 py-1 text-white small">PANEL</span>
+        <div class="d-flex align-items-center gap-3 ms-auto text-white">
+          {% if user.staff_profile.organisation %}<span>{{ user.staff_profile.organisation }}</span>{% elif user_role == 'admin' %}<span>Platform Admin</span>{% else %}<span>Platform Staff</span>{% endif %}
+          <a href="/panel/notifications/" class="text-white text-decoration-none">Notifications {% if panel_unread_count %}<span class="badge bg-light text-dark">{{ panel_unread_count }}</span>{% endif %}</a>
+          <span>{{ user.get_full_name }}</span>
+          <form method="post" action="/panel/logout/">{% csrf_token %}<button class="btn btn-outline-light btn-sm" type="submit">Sign out</button></form>
+        </div>
       </div>
     </header>
 
     <div class="d-flex">
-      <aside class="athena-sidebar"></aside>
+      <aside class="athena-sidebar p-4">
+        <div class="text-muted small mb-2">OVERVIEW</div>
+        <a href="/panel/" class="d-block mb-4">Dashboard</a>
+        <div class="text-muted small mb-2">STOREFRONT</div>
+        <a href="/" class="d-block">View storefront</a>
+      </aside>
       <main class="flex-grow-1 p-4">
         {% block content %}{% endblock %}
       </main>

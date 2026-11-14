@@ -21,6 +21,21 @@ class TimeStampedModel(models.Model):
         abstract = True
 
 
+class AccessRights(TimeStampedModel):
+    class Meta:
+        managed = False
+        default_permissions = ()
+        permissions = [
+            ('participant_access', 'Can access participant features'),
+            ('panel_access', 'Can access the panel'),
+            ('staff_access', 'Can access staff features'),
+            ('admin_access', 'Can access admin features'),
+        ]
+
+    def __str__(self):
+        return 'Access rights'
+
+
 class Region(TimeStampedModel):
     code = models.CharField(
         max_length=2,
@@ -326,3 +341,45 @@ class PreScreenQuestion(TimeStampedModel):
             )
         if errors:
             raise ValidationError(errors)
+
+
+class ParticipantProfile(TimeStampedModel):
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='participant_profile'
+    )
+    mobile = models.CharField(max_length=11)
+    terms_accepted_at = models.DateTimeField()
+    onboarding_completed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'{self.user.get_full_name()} profile'
+
+    @property
+    def code(self):
+        return f'P-{self.user_id:05d}'
+
+
+class StaffProfile(TimeStampedModel):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='staff_profile')
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.RESTRICT,
+        related_name='staff_profiles',
+        null=True,
+        blank=True,
+    )
+    job_title = models.CharField(max_length=100, blank=True)
+    mobile = models.CharField(max_length=11)
+
+    def __str__(self):
+        return f'{self.user.get_full_name()} profile'
+
+
+class Notification(TimeStampedModel):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
+    message = models.CharField(max_length=255)
+    link = models.CharField(max_length=255, blank=True)
+    is_read = models.BooleanField(default=False)
+
+    def __str__(self):
+        return self.message

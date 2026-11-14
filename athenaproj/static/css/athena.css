@@ -60,3 +60,12 @@ a {
   position: sticky;
   top: 1rem;
 }
+
+.form-narrow {
+  max-width: 640px;
+}
+
+.form-control,
+.form-select {
+  border-radius: 12px;
+}
