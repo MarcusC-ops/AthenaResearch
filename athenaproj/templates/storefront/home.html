@@ -40,6 +40,19 @@
   </section>
 
   <section class="container pb-5">
+    {% if personal_items %}
+      <div class="d-flex justify-content-between align-items-end mb-3">
+        <h2>Studies for you</h2>
+        <a href="{% url 'storefront:for_you' %}">See all studies for you</a>
+      </div>
+      <div class="row g-3 mb-5">
+        {% for item in personal_items %}
+          <div class="col-md-6 col-lg-4">
+            {% include 'storefront/_study_card.html' with study=item.study reasons=item.reasons %}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
     <div class="d-flex justify-content-between align-items-end mb-3">
       <h2>Popular studies</h2>
       <a href="{% url 'storefront:studies' %}">See all studies</a>
