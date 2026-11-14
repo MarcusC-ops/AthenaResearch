@@ -26,7 +26,7 @@ def register(request):
                 request,
                 'Welcome to Athena. Complete your profile to see studies picked for you.',
             )
-            return redirect('/account/')
+            return redirect('/onboarding/')
         register_researcher(
             data['first_name'], data['last_name'], data['email'],
             data['organisation'].id, data['job_title'], data['mobile'],

@@ -11,6 +11,7 @@ from django.core.validators import (
 from django.db import models
 from django.db.models import Q
 from django.utils.text import slugify
+from django.utils import timezone
 
 
 class TimeStampedModel(models.Model):
@@ -344,12 +345,95 @@ class PreScreenQuestion(TimeStampedModel):
 
 
 class ParticipantProfile(TimeStampedModel):
+    class Sex(models.TextChoices):
+        FEMALE = 'female', 'Female'
+        MALE = 'male', 'Male'
+
+    class Ethnicity(models.TextChoices):
+        CHINESE = 'chinese', 'Chinese'
+        MALAY = 'malay', 'Malay'
+        INDIAN = 'indian', 'Indian'
+        OTHERS = 'others', 'Others'
+        PREFER_NOT = 'prefer_not', 'Prefer not to say'
+
+    class Employment(models.TextChoices):
+        STUDENT = 'student', 'Student'
+        FULL_TIME = 'full_time', 'Employed full-time'
+        PART_TIME = 'part_time', 'Employed part-time'
+        NOT_WORKING = 'not_working', 'Not working'
+        RETIRED = 'retired', 'Retired'
+
+    class Education(models.TextChoices):
+        PRIMARY = 'primary', 'Primary or below'
+        SECONDARY = 'secondary', 'Secondary'
+        POST_SECONDARY = 'post_secondary', 'Post-secondary (ITE, JC or polytechnic)'
+        DEGREE = 'degree', "Bachelor's degree"
+        POSTGRADUATE = 'postgraduate', 'Postgraduate'
+
+    class ActivityLevel(models.TextChoices):
+        LOW = 'low', 'Low (mostly sitting)'
+        MODERATE = 'moderate', 'Moderate (some exercise each week)'
+        HIGH = 'high', 'High (exercise most days)'
+
+    class Motivation(models.TextChoices):
+        HELP_RESEARCH = 'help_research', 'Helping research'
+        HEALTH_CHECK = 'health_check', 'Access to health checks or new treatments'
+        COMPENSATION = 'compensation', 'Compensation for my time'
+        LEARN = 'learn', 'Learning about my health'
+
+    class Availability(models.TextChoices):
+        WEEKDAY_DAYTIME = 'weekday_daytime', 'Weekday daytime'
+        WEEKDAY_EVENINGS = 'weekday_evenings', 'Weekday evenings'
+        WEEKENDS = 'weekends', 'Weekends'
+        FLEXIBLE = 'flexible', 'Flexible'
+
+    class TravelMinutes(models.TextChoices):
+        FIFTEEN = '15', 'Up to 15 minutes'
+        THIRTY = '30', 'Up to 30 minutes'
+        FORTY_FIVE = '45', 'Up to 45 minutes'
+        SIXTY = '60', 'Up to an hour'
+
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='participant_profile'
     )
     mobile = models.CharField(max_length=11)
     terms_accepted_at = models.DateTimeField()
     onboarding_completed_at = models.DateTimeField(null=True, blank=True)
+    date_of_birth = models.DateField(null=True, blank=True)
+    sex = models.CharField(max_length=10, choices=Sex.choices, null=True, blank=True)
+    region = models.ForeignKey(
+        Region, on_delete=models.RESTRICT, null=True, blank=True,
+        related_name='participant_profiles',
+    )
+    ethnicity = models.CharField(
+        max_length=20, choices=Ethnicity.choices, null=True, blank=True
+    )
+    employment = models.CharField(
+        max_length=20, choices=Employment.choices, null=True, blank=True
+    )
+    education = models.CharField(
+        max_length=20, choices=Education.choices, null=True, blank=True
+    )
+    height_cm = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
+    weight_kg = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
+    bmi = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
+    smoker = models.BooleanField(default=False)
+    activity_level = models.CharField(
+        max_length=20, choices=ActivityLevel.choices, null=True, blank=True
+    )
+    conditions = models.ManyToManyField(Condition, blank=True, related_name='participant_profiles')
+    motivation = models.CharField(
+        max_length=20, choices=Motivation.choices, null=True, blank=True
+    )
+    availability = models.CharField(
+        max_length=20, choices=Availability.choices, null=True, blank=True
+    )
+    max_travel_minutes = models.CharField(
+        max_length=2, choices=TravelMinutes.choices, null=True, blank=True
+    )
+    consent_matching = models.BooleanField(default=False)
+    consent_insights = models.BooleanField(default=False)
+    consent_contact = models.BooleanField(default=False)
 
     def __str__(self):
         return f'{self.user.get_full_name()} profile'
@@ -357,6 +441,26 @@ class ParticipantProfile(TimeStampedModel):
     @property
     def code(self):
         return f'P-{self.user_id:05d}'
+
+    @property
+    def age(self):
+        if not self.date_of_birth:
+            return None
+        today = timezone.localdate()
+        return today.year - self.date_of_birth.year - (
+            (today.month, today.day) < (self.date_of_birth.month, self.date_of_birth.day)
+        )
+
+    def save(self, *args, **kwargs):
+        if self.height_cm and self.weight_kg:
+            self.bmi = round(
+                float(self.weight_kg) / (float(self.height_cm) / 100) ** 2, 1
+            )
+        else:
+            self.bmi = None
+        if kwargs.get('update_fields') is not None:
+            kwargs['update_fields'] = set(kwargs['update_fields']) | {'bmi'}
+        super().save(*args, **kwargs)
 
 
 class StaffProfile(TimeStampedModel):

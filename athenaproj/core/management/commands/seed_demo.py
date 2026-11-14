@@ -41,7 +41,7 @@ class Command(BaseCommand):
         sites = self.create_sites(organisations, regions)
         studies = self.create_studies(organisations, categories, sites, regions, conditions)
         self.create_questions(studies)
-        self.create_people(organisations)
+        self.create_people(organisations, regions, conditions)
 
         for label, model in (
             ('Regions', Region),
@@ -57,7 +57,7 @@ class Command(BaseCommand):
             f"Demo password: {os.environ.get('ATHENA_DEMO_PASSWORD', 'AthenaDemo2026!')}"
         )
 
-    def create_people(self, organisations):
+    def create_people(self, organisations, regions, conditions):
         password = os.environ.get('ATHENA_DEMO_PASSWORD', 'AthenaDemo2026!')
         people = [
             ('Aisyah', 'Rahman', 'aisyah@example.com', 'Participant', None, '', '9123 4567', True),
@@ -85,14 +85,64 @@ class Command(BaseCommand):
             user.save()
             user.groups.set([Group.objects.get(name=group_name)])
             if group_name == 'Participant':
+                profile_defaults = {
+                    'mobile': normalise_sg_mobile(mobile),
+                    'terms_accepted_at': user.date_joined,
+                }
+                if email == 'aisyah@example.com':
+                    profile_defaults.update(
+                        date_of_birth=timezone.localdate().replace(
+                            year=timezone.localdate().year - 24
+                        ),
+                        sex='female',
+                        region=regions['W'],
+                        employment='student',
+                        education='degree',
+                        height_cm='160.0',
+                        weight_kg='52.0',
+                        smoker=False,
+                        activity_level='high',
+                        motivation='help_research',
+                        availability='weekday_evenings',
+                        max_travel_minutes='30',
+                        consent_matching=True,
+                        consent_insights=True,
+                        consent_contact=True,
+                        onboarding_completed_at=timezone.now(),
+                    )
+                else:
+                    profile_defaults.update(
+                        date_of_birth=timezone.localdate().replace(
+                            year=timezone.localdate().year - 67
+                        ),
+                        sex='male',
+                        region=regions['NE'],
+                        employment='retired',
+                        education='secondary',
+                        height_cm='168.0',
+                        weight_kg='74.0',
+                        smoker=False,
+                        activity_level='moderate',
+                        motivation='health_check',
+                        availability='weekday_daytime',
+                        max_travel_minutes='30',
+                        consent_matching=True,
+                        consent_insights=False,
+                        consent_contact=False,
+                        onboarding_completed_at=timezone.now(),
+                    )
                 ParticipantProfile.objects.update_or_create(
                     user=user,
-                    defaults={
-                        'mobile': normalise_sg_mobile(mobile),
-                        'terms_accepted_at': user.date_joined,
-                        'onboarding_completed_at': None,
-                    },
+                    defaults=profile_defaults,
                 )
+                profile = ParticipantProfile.objects.get(user=user)
+                if email == 'mrtan@example.com':
+                    profile.conditions.set([
+                        conditions['Hypertension'],
+                        conditions['Type 2 diabetes'],
+                    ])
+                else:
+                    profile.conditions.clear()
             else:
                 StaffProfile.objects.update_or_create(
                     user=user,
