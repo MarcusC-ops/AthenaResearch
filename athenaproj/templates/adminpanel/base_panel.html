@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+
+{% block body %}
+  <div class="athena-panel-shell">
+    <header class="athena-topbar">
+      <div class="d-flex align-items-center">
+        <span class="wordmark text-white">Athena</span>
+        <span class="ms-3 border border-white rounded-pill px-2 py-1 text-white small">PANEL</span>
+      </div>
+    </header>
+
+    <div class="d-flex">
+      <aside class="athena-sidebar"></aside>
+      <main class="flex-grow-1 p-4">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+{% endblock %}

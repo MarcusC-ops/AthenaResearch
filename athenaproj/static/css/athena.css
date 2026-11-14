@@ -1,0 +1,49 @@
+:root {
+  --athena-blue: #1A12E0;
+  --athena-panel: #0E0BB0;
+  --athena-border: #E6E6E6;
+  --athena-radius: 12px;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  color: #000;
+  background: #fff;
+}
+
+.card {
+  border: 1px solid var(--athena-border);
+  border-radius: var(--athena-radius);
+  box-shadow: none;
+}
+
+.btn,
+.badge {
+  border-radius: 999px;
+}
+
+.btn-primary {
+  background-color: var(--athena-blue);
+  border-color: var(--athena-blue);
+}
+
+a {
+  color: var(--athena-blue);
+}
+
+.wordmark {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.athena-topbar {
+  background: var(--athena-panel);
+  padding: 1rem 2rem;
+}
+
+.athena-sidebar {
+  width: 240px;
+  min-height: 100vh;
+  border-right: 1px solid var(--athena-border);
+  background: #fff;
+}

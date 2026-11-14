@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block body %}
+  <header class="container py-3">
+    <div class="d-flex justify-content-between align-items-center">
+      <a href="/" class="wordmark text-decoration-none text-dark">Athena</a>
+      <a href="/" class="text-decoration-none text-primary">Studies</a>
+    </div>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="text-center py-5">
+    <div class="wordmark display-6">Athena</div>
+    <p class="mt-3 mb-2">Find research studies that fit your life</p>
+    <a href="/" class="text-decoration-none text-primary">Studies</a>
+  </footer>
+{% endblock %}
