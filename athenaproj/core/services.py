@@ -261,9 +261,47 @@ def category_tiles():
     )
 
 
+def alternatives_for(profile, exclude_study, limit=3):
+    """Return up to limit eligible public studies that fit the participant."""
+    if exclude_study is None:
+        return []
+    category_positions = {
+        category: index for index, category in enumerate(profile.ml1_categories or [])
+    }
+    studies = (
+        Study.objects.filter(
+            status__in=[Study.Status.PUBLISHED, Study.Status.FULL],
+        )
+        .exclude(pk=exclude_study.pk)
+        .exclude(applications__participant=profile)
+        .select_related('category', 'organisation')
+        .prefetch_related('sites__region', 'required_conditions', 'excluded_conditions')
+        .distinct()
+    )
+    eligible = [study for study in studies if is_eligible(profile, study)]
+    eligible.sort(key=lambda study: (
+        0 if study.category_id == exclude_study.category_id else 1,
+        category_positions.get(study.category.ml_label, len(category_positions)),
+        study.recruitment_deadline,
+        study.pk,
+    ))
+    return eligible[:limit]
+
+
 def popular_studies(limit=6):
-    """Return newest public studies for now; increment 8 changes it."""
-    return search_studies(sort='newest')[:limit]
+    """Return public studies ordered by recent applications, then newest published."""
+    cutoff = timezone.now() - timedelta(days=30)
+    return (
+        public_studies()
+        .annotate(
+            recent_applications=Count(
+                'applications',
+                filter=Q(applications__submitted_at__gte=cutoff),
+                distinct=True,
+            )
+        )
+        .order_by('-recent_applications', '-published_at', '-id')[:limit]
+    )
 
 
 @transaction.atomic
@@ -423,11 +461,12 @@ def check_eligibility(profile, study):
     if study.min_bmi is not None or study.max_bmi is not None:
         minimum = study.min_bmi if study.min_bmi is not None else 'no minimum'
         maximum = study.max_bmi if study.max_bmi is not None else 'no maximum'
+        profile_bmi = float(profile.bmi) if profile.bmi is not None else None
         results.append(RuleResult(
             'bmi', 'BMI', f'BMI {minimum} to {maximum} (yours is {profile.bmi}).',
-            profile.bmi is not None
-            and (study.min_bmi is None or profile.bmi >= study.min_bmi)
-            and (study.max_bmi is None or profile.bmi <= study.max_bmi),
+            profile_bmi is not None
+            and (study.min_bmi is None or profile_bmi >= float(study.min_bmi))
+            and (study.max_bmi is None or profile_bmi <= float(study.max_bmi)),
         ))
     regions = list(study.regions.all())
     if regions:

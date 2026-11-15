@@ -27,7 +27,27 @@
       <section class="card p-4 mb-3"><h2>Where</h2>{% for site in study.sites.all %}<p class="mb-2"><strong>{{ site.name }}</strong><br>{{ site.address }}</p>{% endfor %}</section>
       <section class="card p-4"><h2>About the research team</h2><p>{{ study.organisation.name }} · {{ study.organisation.get_org_type_display }}</p>{% if study.irb_name %}<p class="mb-0">Approved by {{ study.irb_name }}, reference {{ study.irb_reference }}</p>{% endif %}</section>
     </div>
-    <aside class="col-lg-4"><div class="card p-4 sticky-facts"><h2>Key facts</h2><p>{{ study.total_visits }} visits over {{ study.duration_weeks }} weeks</p><p>{{ study.get_visit_times_display }}</p><p>{% if study.regions.exists %}{% for region in study.regions.all %}{% if not forloop.first %}, {% endif %}{{ region.name }}{% endfor %}{% else %}Anywhere in Singapore{% endif %}</p><p>Ages {{ study.min_age }} to {{ study.max_age }}</p><hr>{% if study.status == 'full' %}<p>Full</p>{% else %}<p>{{ study.places_left }} places left</p>{% endif %}<p>{% if study.show_compensation %}{{ study.compensation_amount|money }}{% else %}Compensation for time and travel is provided{% endif %}</p><a class="btn btn-primary w-100" href="/accounts/login/?next=/studies/{{ study.slug }}/">Check if I can apply</a>{% if user.is_authenticated and user.participant_profile %}<form method="post" action="{% if is_shortlisted %}{% url 'storefront:shortlist_remove' study.id %}{% else %}{% url 'storefront:shortlist_add' study.id %}{% endif %}" class="mt-2">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}"><button class="btn btn-outline-primary w-100" type="submit">{% if is_shortlisted %}Remove from shortlist{% else %}Shortlist{% endif %}</button></form>{% else %}<a class="btn btn-outline-primary w-100 mt-2" href="/accounts/login/?next=/studies/{{ study.slug }}/">Shortlist</a><small class="d-block mt-3">You will be asked to sign in or create an account first.</small>{% endif %}</div></aside>
+    <aside class="col-lg-4"><div class="card p-4 sticky-facts"><h2>Key facts</h2><p>{{ study.total_visits }} visits over {{ study.duration_weeks }} weeks</p><p>{{ study.get_visit_times_display }}</p><p>{% if study.regions.exists %}{% for region in study.regions.all %}{% if not forloop.first %}, {% endif %}{{ region.name }}{% endfor %}{% else %}Anywhere in Singapore{% endif %}</p><p>Ages {{ study.min_age }} to {{ study.max_age }}</p><hr>{% if study.status == 'full' %}<p>Full</p>{% else %}<p>{{ study.places_left }} places left</p>{% endif %}<p>{% if study.show_compensation %}{{ study.compensation_amount|money }}{% else %}Compensation for time and travel is provided{% endif %}</p>
+      {% if user.is_authenticated and user.participant_profile %}
+        {% if application %}
+          <a class="btn btn-primary w-100" href="{% url 'storefront:application_detail' application.pk %}">View my application</a>
+        {% elif apply_step == 'step3' %}
+          <a class="btn btn-primary w-100" href="{% url 'storefront:apply_step3' study.slug %}">Continue application</a>
+        {% elif apply_step == 'step2' %}
+          <a class="btn btn-primary w-100" href="{% url 'storefront:apply_step2' study.slug %}">Continue application</a>
+        {% elif study.status == 'full' %}
+          <a class="btn btn-primary w-100" href="{% url 'storefront:apply_step1' study.slug %}">Join the waitlist</a>
+        {% else %}
+          <a class="btn btn-primary w-100" href="{% url 'storefront:apply_step1' study.slug %}">Check if I can apply</a>
+        {% endif %}
+      {% else %}
+        {% if study.status == 'full' %}
+          <a class="btn btn-primary w-100" href="/accounts/login/?next=/studies/{{ study.slug }}/">Join the waitlist</a>
+        {% else %}
+          <a class="btn btn-primary w-100" href="/accounts/login/?next=/studies/{{ study.slug }}/">Check if I can apply</a>
+        {% endif %}
+      {% endif %}
+      {% if user.is_authenticated and user.participant_profile %}<form method="post" action="{% if is_shortlisted %}{% url 'storefront:shortlist_remove' study.id %}{% else %}{% url 'storefront:shortlist_add' study.id %}{% endif %}" class="mt-2">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}"><button class="btn btn-outline-primary w-100" type="submit">{% if is_shortlisted %}Remove from shortlist{% else %}Shortlist{% endif %}</button></form>{% else %}<a class="btn btn-outline-primary w-100 mt-2" href="/accounts/login/?next=/studies/{{ study.slug }}/">Shortlist</a><small class="d-block mt-3">You will be asked to sign in or create an account first.</small>{% endif %}</div></aside>
   </div>
 </div>
 {% endblock %}

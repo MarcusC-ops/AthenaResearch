@@ -1,0 +1,50 @@
+{% extends 'storefront/base_storefront.html' %}
+
+{% block title %}Application sent · Athena{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+      <div class="card p-4">
+        {% if application.status == 'waitlisted' %}
+          <h1>You are on the waitlist</h1>
+          <p>The study is full right now. If a place opens, the research team can move you forward. Your reference is {{ application.reference }}.</p>
+        {% elif application.status == 'auto_declined' %}
+          <h1>Not eligible this time</h1>
+          <p>One of your answers means this study is not the right fit. Here are studies you qualify for:</p>
+          {% if alternatives %}
+            <div class="row g-3 mt-3">
+              {% for alternative in alternatives %}
+                <div class="col-md-6">
+                  {% include 'storefront/_study_card.html' with study=alternative reasons='' %}
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% else %}
+          <h1>Application sent</h1>
+          <p>Your reference is {{ application.reference }}. The research team will review it and you can follow every step on your application page.</p>
+          <div class="mt-4">
+            <a href="{% url 'storefront:application_detail' application.pk %}" class="btn btn-primary">View my application</a>
+          </div>
+          {% if application.status == 'under_review' and application.ml2_band == 'low' %}
+            <div class="mt-5">
+              <h2 class="h4">You might also like</h2>
+              {% if alternatives %}
+                <div class="row g-3 mt-3">
+                  {% for alternative in alternatives %}
+                    <div class="col-md-6">
+                      {% include 'storefront/_study_card.html' with study=alternative reasons='' %}
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

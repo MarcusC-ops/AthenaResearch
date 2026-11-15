@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.http import Http404
 from django.contrib import messages
@@ -5,10 +6,14 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from core.models import Study
+from core.models import Application, Study
 from core.services import (
+    NotEligible,
+    alternatives_for,
     category_tiles,
+    check_eligibility,
     get_public_study,
+    is_eligible,
     popular_studies,
     search_studies,
     for_you_feed,
@@ -20,10 +25,10 @@ from core.services import (
     compare_studies,
     remove_from_shortlist,
     shortlist_for,
+    submit_application,
 )
 
-from .forms import StudyFilterForm
-from .forms import ProfileForm
+from .forms import ApplyQuestionsForm, StudyFilterForm, ProfileForm
 from .decorators import participant_required
 
 
@@ -80,10 +85,25 @@ def study_detail(request, slug):
             participant=request.user.participant_profile
         ).exists()
     )
+    application = None
+    apply_step = None
+    if request.user.is_authenticated and hasattr(request.user, 'participant_profile'):
+        application = Application.objects.filter(
+            participant=request.user.participant_profile,
+            study=study,
+        ).first()
+        if application:
+            apply_step = 'application'
+        else:
+            session_data = request.session.get(_apply_session_key(study.pk), {})
+            if session_data.get('passed_step1'):
+                apply_step = 'step3' if session_data.get('answers') else 'step2'
+            else:
+                apply_step = 'step1'
     return render(
         request,
         'storefront/study_detail.html',
-        {'study': study, 'is_shortlisted': is_shortlisted},
+        {'study': study, 'is_shortlisted': is_shortlisted, 'application': application, 'apply_step': apply_step},
     )
 
 
@@ -92,6 +112,214 @@ def _safe_next(request, fallback):
     if next_url.startswith('/') and not next_url.startswith('//'):
         return next_url
     return fallback
+
+
+def _apply_session_key(study_id):
+    return f'apply_{study_id}'
+
+
+def _redirect_if_application_exists(request, study):
+    if not request.user.is_authenticated:
+        return None
+    application = Application.objects.filter(
+        participant=request.user.participant_profile,
+        study=study,
+    ).first()
+    if application:
+        return redirect(f'/applications/{application.pk}/')
+    return None
+
+
+def _require_profile_ready(request):
+    profile = request.user.participant_profile
+    if not profile_ready(profile):
+        messages.info(request, 'Complete your profile first.')
+        return redirect('/onboarding/')
+    return None
+
+
+@participant_required
+def apply_step1(request, slug):
+    study = get_public_study(slug)
+    existing = _redirect_if_application_exists(request, study)
+    if existing:
+        return existing
+    profile_ready_redirect = _require_profile_ready(request)
+    if profile_ready_redirect:
+        return profile_ready_redirect
+
+    key = _apply_session_key(study.pk)
+    session_data = request.session.get(key, {})
+    eligible = is_eligible(request.user.participant_profile, study)
+    next_data = {
+        'passed_step1': eligible,
+        'answers': session_data.get('answers', {}) if eligible else {},
+        'preferred_site': session_data.get('preferred_site'),
+        'availability': session_data.get('availability'),
+    }
+    request.session[key] = next_data
+    rules = check_eligibility(request.user.participant_profile, study)
+    return render(
+        request,
+        'storefront/apply_step1.html',
+        {
+            'study': study,
+            'eligible': eligible,
+            'rules': rules,
+            'alternatives': alternatives_for(request.user.participant_profile, study, limit=3)
+            if not eligible else [],
+            'session_data': next_data,
+        },
+    )
+
+
+@participant_required
+def apply_step2(request, slug):
+    study = get_public_study(slug)
+    existing = _redirect_if_application_exists(request, study)
+    if existing:
+        return existing
+    profile_ready_redirect = _require_profile_ready(request)
+    if profile_ready_redirect:
+        return profile_ready_redirect
+
+    key = _apply_session_key(study.pk)
+    session_data = request.session.get(key, {})
+    if not session_data.get('passed_step1'):
+        return redirect('storefront:apply_step1', slug=study.slug)
+
+    form = ApplyQuestionsForm(
+        study,
+        request.POST or None,
+        initial={
+            **{
+                f'question_{question.pk}': session_data.get('answers', {}).get(str(question.pk))
+                for question in study.pre_screen_questions.all()
+            },
+            'preferred_site': session_data.get('preferred_site'),
+            'availability': session_data.get('availability'),
+        },
+    )
+    if request.method == 'POST' and form.is_valid():
+        answers = {
+            int(field_name.split('_', 1)[1]): value
+            for field_name, value in form.cleaned_data.items()
+            if field_name.startswith('question_')
+        }
+        next_data = {
+            'passed_step1': True,
+            'answers': answers,
+            'preferred_site': form.cleaned_data['preferred_site'].pk,
+            'availability': form.cleaned_data['availability'],
+        }
+        request.session[key] = next_data
+        return redirect('storefront:apply_step3', slug=study.slug)
+    return render(request, 'storefront/apply_step2.html', {'study': study, 'form': form})
+
+
+@participant_required
+def apply_step3(request, slug):
+    study = get_public_study(slug)
+    existing = _redirect_if_application_exists(request, study)
+    if existing:
+        return existing
+    profile_ready_redirect = _require_profile_ready(request)
+    if profile_ready_redirect:
+        return profile_ready_redirect
+
+    key = _apply_session_key(study.pk)
+    session_data = request.session.get(key, {})
+    if not session_data.get('passed_step1'):
+        return redirect('storefront:apply_step1', slug=study.slug)
+    if not session_data.get('answers'):
+        return redirect('storefront:apply_step2', slug=study.slug)
+
+    preferred_site = study.sites.filter(pk=session_data.get('preferred_site')).first()
+    answers = session_data.get('answers', {})
+    question_answers = [
+        {
+            'question': question,
+            'answer': answers.get(question.pk, answers.get(str(question.pk), '')),
+        }
+        for question in study.pre_screen_questions.all()
+    ]
+    if request.method == 'POST':
+        consent = request.POST.get('consent') == 'on'
+        try:
+            application, _ = submit_application(
+                request.user.participant_profile,
+                study,
+                answers,
+                session_data.get('preferred_site'),
+                session_data.get('availability'),
+                consent,
+            )
+        except ValidationError as exc:
+            return render(
+                request,
+                'storefront/apply_step3.html',
+                {
+                    'study': study,
+                    'answers': question_answers,
+                    'preferred_site': preferred_site,
+                    'availability': session_data.get('availability'),
+                    'error_message': str(exc),
+                },
+            )
+        except NotEligible:
+            session_data['passed_step1'] = False
+            request.session[key] = session_data
+            return redirect('storefront:apply_step1', slug=study.slug)
+
+        request.session.pop(key, None)
+        return redirect('storefront:application_submitted', application_id=application.pk)
+
+    return render(
+        request,
+        'storefront/apply_step3.html',
+        {
+            'study': study,
+            'answers': question_answers,
+            'preferred_site': preferred_site,
+            'availability': session_data.get('availability'),
+        },
+    )
+
+
+@participant_required
+def application_detail(request, application_id):
+    profile = request.user.participant_profile
+    try:
+        application = Application.objects.select_related('study','participant').get(pk=application_id)
+    except Application.DoesNotExist:
+        raise Http404
+    if application.participant_id != profile.pk:
+        raise Http404
+    return render(
+        request,
+        'storefront/application_detail.html',
+        {'application': application},
+    )
+
+
+@participant_required
+def application_submitted(request, application_id):
+    profile = request.user.participant_profile
+    try:
+        application = Application.objects.select_related('study','participant').get(pk=application_id)
+    except Application.DoesNotExist:
+        raise Http404
+    if application.participant_id != profile.pk:
+        raise Http404
+    alternatives = alternatives_for(profile, application.study, limit=3)
+    return render(
+        request,
+        'storefront/application_submitted.html',
+        {
+            'application': application,
+            'alternatives': alternatives,
+        },
+    )
 
 
 @participant_required

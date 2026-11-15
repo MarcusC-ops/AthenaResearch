@@ -1,0 +1,44 @@
+{% extends 'storefront/base_storefront.html' %}
+
+{% block title %}Questions and site · Athena{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-10">
+      <div class="d-flex justify-content-center gap-3 mb-4">
+        <span class="badge rounded-pill bg-light text-dark border px-3 py-2">1</span>
+        <span class="badge rounded-pill bg-primary px-3 py-2">2</span>
+        <span class="badge rounded-pill bg-light text-dark border px-3 py-2">3</span>
+      </div>
+      <div class="card p-4">
+        <small class="text-uppercase text-muted">Step 2 of 3</small>
+        <h1 class="mt-2">Questions and site</h1>
+        <form method="post" class="mt-4">
+          {% csrf_token %}
+          {% for field in form %}
+            {% if field.name == 'preferred_site' or field.name == 'availability' %}
+              <div class="mb-4">
+                <label class="form-label fw-semibold">{{ field.label }}</label>
+                {{ field }}
+                {% if field.errors %}<div class="text-danger small">{{ field.errors|join:', ' }}</div>{% endif %}
+              </div>
+            {% else %}
+              <div class="mb-4">
+                <div class="fw-semibold mb-2">{{ field.label }}</div>
+                {{ field }}
+                {% if field.errors %}<div class="text-danger small">{{ field.errors|join:', ' }}</div>{% endif %}
+              </div>
+            {% endif %}
+          {% endfor %}
+          {{ form.non_field_errors }}
+          <div class="d-flex justify-content-between mt-4">
+            <a href="{% url 'storefront:apply_step1' study.slug %}" class="btn btn-outline-primary">Back</a>
+            <button type="submit" class="btn btn-primary">Continue</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
