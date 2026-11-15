@@ -1,3 +1,1 @@
-from django.shortcuts import render
-
-# Create your views here.
+"""ML has no direct views; model access lives in services.py."""

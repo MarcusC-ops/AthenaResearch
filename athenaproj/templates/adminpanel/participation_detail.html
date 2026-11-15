@@ -6,7 +6,7 @@
 </div>
 
 <h1>{{ application.participant.user.get_full_name }}</h1>
-<p class="text-muted mb-4">{{ application.study.title }} — <span class="badge rounded-pill bg-light text-dark">{{ application.get_status_display }}</span></p>
+<p class="text-muted mb-4">{{ application.study.title }} <span class="badge rounded-pill bg-light text-dark">{{ application.get_status_display }}</span></p>
 
 <div class="row mb-4 g-3">
   <div class="col-md-6">
@@ -15,7 +15,7 @@
       {% if screening %}
         <div class="mb-2">
           <div class="text-muted small">Date and time</div>
-          <div>{{ screening.scheduled_for|date:"M d, H:i" }}</div>
+          <div>{{ screening.scheduled_for|date:"j M Y, g:i A" }}</div>
         </div>
         <div class="mb-2">
           <div class="text-muted small">Site</div>
@@ -71,7 +71,7 @@
                   </div>
                 </form>
               {% else %}
-                <div class="text-muted">{{ visit.scheduled_for|date:"M d, H:i" }}</div>
+                <div class="text-muted">{{ visit.scheduled_for|date:"j M Y, g:i A" }}</div>
               {% endif %}
             </td>
             <td><span class="badge rounded-pill bg-light text-dark">{{ visit.get_status_display }}</span></td>
@@ -120,9 +120,9 @@
           <tr>
             <td>S${{ payout.amount|floatformat:2 }}</td>
             <td><span class="badge rounded-pill bg-light text-dark">{{ payout.get_status_display }}</span></td>
-            <td>{% if payout.paid_at %}{{ payout.paid_at|date:"M d, Y" }}{% else %}—{% endif %}</td>
-            <td>{% if payout.reference %}{{ payout.reference }}{% else %}—{% endif %}</td>
-            <td>{% if payout.rejection_reason %}{{ payout.rejection_reason }}{% else %}—{% endif %}</td>
+            <td>{% if payout.paid_at %}{{ payout.paid_at|date:"j M Y" }}{% else %}Not paid{% endif %}</td>
+            <td>{% if payout.reference %}{{ payout.reference }}{% else %}Not available{% endif %}</td>
+            <td>{% if payout.rejection_reason %}{{ payout.rejection_reason }}{% else %}None{% endif %}</td>
           </tr>
         {% endfor %}
       </tbody>

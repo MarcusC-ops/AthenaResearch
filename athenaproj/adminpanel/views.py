@@ -779,15 +779,23 @@ def application_override_confirm(request, application_id):
     })
 
 
-@coordinator_required
+@panel_staff_or_coordinator_required
 def participation(request):
-    org = request.user.staff_profile.organisation
+    role = user_role(request.user)
+    org = (
+        request.user.staff_profile.organisation
+        if role == 'coordinator' else None
+    )
     applications_qs = Application.objects.filter(
-        study__organisation=org,
         status__in=[Application.Status.ENROLLED, Application.Status.COMPLETED],
     ).select_related('participant__user', 'study').order_by('-created_at')
+    if org is not None:
+        applications_qs = applications_qs.filter(study__organisation=org)
 
-    form = ParticipationFilterForm(request.GET or None, organisation=org)
+    form = ParticipationFilterForm(
+        request.GET or None,
+        organisation=org,
+    )
     if form.is_valid() and form.cleaned_data.get('study_id'):
         applications_qs = applications_qs.filter(study=form.cleaned_data['study_id'])
 
@@ -814,13 +822,17 @@ def participation(request):
     })
 
 
-@coordinator_required
+@panel_staff_or_coordinator_required
 def participation_detail(request, application_id):
-    application = get_object_or_404(
-        Application.objects.select_related('participant__user', 'study__organisation'),
-        pk=application_id,
-        study__organisation=request.user.staff_profile.organisation,
+    applications = Application.objects.select_related(
+        'participant__user',
+        'study__organisation',
     )
+    if user_role(request.user) == 'coordinator':
+        applications = applications.filter(
+            study__organisation=request.user.staff_profile.organisation,
+        )
+    application = get_object_or_404(applications, pk=application_id)
 
     if request.method == 'POST':
         action = request.POST.get('action')
@@ -906,13 +918,14 @@ def participation_detail(request, application_id):
     })
 
 
-@coordinator_required
+@panel_staff_or_coordinator_required
 def participation_withdraw(request, application_id):
-    application = get_object_or_404(
-        Application.objects.select_related('study__organisation'),
-        pk=application_id,
-        study__organisation=request.user.staff_profile.organisation,
-    )
+    applications = Application.objects.select_related('study__organisation')
+    if user_role(request.user) == 'coordinator':
+        applications = applications.filter(
+            study__organisation=request.user.staff_profile.organisation,
+        )
+    application = get_object_or_404(applications, pk=application_id)
 
     if request.method == 'POST':
         form = CoordinatorWithdrawForm(request.POST)

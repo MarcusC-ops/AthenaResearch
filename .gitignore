@@ -1,7 +1,6 @@
 .venv/
 __pycache__/
 *.pyc
-athenaproj/db.sqlite3
 .ipynb_checkpoints/
 .DS_Store
 .env
