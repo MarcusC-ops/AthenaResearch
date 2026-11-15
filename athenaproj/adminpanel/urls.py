@@ -27,4 +27,34 @@ urlpatterns = [
     ),
     path('studies/<int:study_id>/preview/', views.study_preview, name='study_preview'),
     path('studies/<int:study_id>/submit/', views.study_submit, name='study_submit'),
+    path(
+        'studies/<int:study_id>/applicants/',
+        views.applicants,
+        name='applicants',
+    ),
+    path(
+        'applications/<int:application_id>/',
+        views.application_detail,
+        name='application_detail',
+    ),
+    path(
+        'applications/<int:application_id>/not-selected/',
+        views.application_not_selected,
+        name='application_not_selected',
+    ),
+    path(
+        'applications/<int:application_id>/screening-failed/',
+        views.application_screening_failed,
+        name='application_screening_failed',
+    ),
+    path(
+        'applications/<int:application_id>/override/',
+        views.application_override,
+        name='application_override',
+    ),
+    path(
+        'applications/<int:application_id>/override/confirm/',
+        views.application_override_confirm,
+        name='application_override_confirm',
+    ),
 ]

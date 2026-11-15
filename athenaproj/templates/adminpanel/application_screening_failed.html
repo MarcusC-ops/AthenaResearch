@@ -1,0 +1,20 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Record screening failed · Athena{% endblock %}
+
+{% block content %}
+<div class="container form-narrow">
+  <section class="card p-4">
+    <h1>Record that {{ application.reference }} did not pass screening?</h1>
+    <form method="post">
+      {% csrf_token %}
+      <div class="mb-3">
+        <label class="form-label" for="{{ form.note.id_for_label }}">Note</label>
+        {{ form.note }}
+      </div>
+      <button class="btn btn-primary" type="submit">Record result</button>
+      <a class="btn btn-outline-primary" href="{% url 'adminpanel:application_detail' application.pk %}">Cancel</a>
+    </form>
+  </section>
+</div>
+{% endblock %}

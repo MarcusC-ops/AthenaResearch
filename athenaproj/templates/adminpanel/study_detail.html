@@ -22,6 +22,7 @@
         {% if user_role == 'coordinator' %}<a class="btn btn-outline-primary" href="{% url 'adminpanel:study_submit' study.pk %}">Submit for review</a>{% endif %}
       {% elif study.status == 'published' or study.status == 'full' or study.status == 'paused' %}
         <a class="btn btn-outline-primary" href="{% url 'adminpanel:study_preview' study.pk %}">Preview</a>
+        <a class="btn btn-primary" href="{% url 'adminpanel:applicants' study.pk %}">Applicants</a>
         <form method="post">
           {% csrf_token %}
           <input type="hidden" name="action" value="toggle_auto_shortlist">

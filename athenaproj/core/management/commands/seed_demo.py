@@ -15,6 +15,7 @@ from core.models import (
     Organisation,
     Payout,
     PreScreenQuestion,
+    PredictionLog,
     Region,
     Review,
     Site,
@@ -28,8 +29,14 @@ from core.models import (
 from core.validators import normalise_sg_mobile
 from core.services import (
     change_status,
+    enrol_applicant,
     is_eligible,
+    override_band,
+    record_screening_outcome,
+    schedule_screening,
+    shortlist_applicant,
     submit_application,
+    waitlist_applicant,
 )
 
 
@@ -291,14 +298,11 @@ class Command(BaseCommand):
         aisyah = ParticipantProfile.objects.get(user__username='aisyah@example.com')
         mr_tan = ParticipantProfile.objects.get(user__username='mrtan@example.com')
 
+        self.create_order_management_applications(flu_study, sites)
         aisyah_application = self.get_or_submit_application(
             aisyah,
             flu_study,
             sites['Kent Ridge CRC, Lower Kent Ridge Clinic'],
-        )
-        self.move_application_to(
-            aisyah_application,
-            Application.Status.ENROLLED,
         )
         self.create_aisyah_after_sales(
             aisyah_application,
@@ -365,6 +369,185 @@ class Command(BaseCommand):
                 'moderated_at': None,
             },
         )
+
+    def create_order_management_applications(self, study, sites):
+        applicants = [
+            (
+                'aisyah@example.com',
+                Application.Status.ENROLLED,
+                0.82,
+                Application.Band.HIGH,
+            ),
+            (
+                'demo01@example.com',
+                Application.Status.ENROLLED,
+                0.80,
+                Application.Band.HIGH,
+            ),
+            (
+                'demo02@example.com',
+                Application.Status.ENROLLED,
+                0.55,
+                Application.Band.MEDIUM,
+            ),
+            (
+                'demo03@example.com',
+                Application.Status.ENROLLED,
+                0.20,
+                Application.Band.LOW,
+            ),
+            (
+                'demo04@example.com',
+                Application.Status.ENROLLED,
+                None,
+                Application.Band.UNSCORED,
+            ),
+            (
+                'demo05@example.com',
+                Application.Status.WAITLISTED,
+                0.55,
+                Application.Band.MEDIUM,
+            ),
+            (
+                'demo06@example.com',
+                Application.Status.SHORTLISTED,
+                0.65,
+                Application.Band.MEDIUM,
+            ),
+            (
+                'demo07@example.com',
+                Application.Status.SHORTLISTED,
+                0.35,
+                Application.Band.LOW,
+            ),
+            (
+                'demo08@example.com',
+                Application.Status.SCREENING_SCHEDULED,
+                0.82,
+                Application.Band.HIGH,
+            ),
+            (
+                'demo09@example.com',
+                Application.Status.SCREENING_PASSED,
+                0.55,
+                Application.Band.MEDIUM,
+            ),
+            (
+                'demo10@example.com',
+                Application.Status.UNDER_REVIEW,
+                0.20,
+                Application.Band.LOW,
+            ),
+            (
+                'demo11@example.com',
+                Application.Status.UNDER_REVIEW,
+                0.75,
+                Application.Band.HIGH,
+            ),
+            (
+                'demo12@example.com',
+                Application.Status.UNDER_REVIEW,
+                None,
+                Application.Band.UNSCORED,
+            ),
+            (
+                'demo13@example.com',
+                Application.Status.UNDER_REVIEW,
+                0.25,
+                Application.Band.LOW,
+            ),
+        ]
+        site = sites['Kent Ridge CRC, Lower Kent Ridge Clinic']
+        coordinator = User.objects.get(username='drlim@kentridge-crc.sg')
+        scheduled_for = timezone.now() + timedelta(days=3)
+
+        for username, target_status, probability, band in applicants:
+            profile = ParticipantProfile.objects.get(user__username=username)
+            application = self.get_or_submit_application(profile, study, site)
+            self._set_demo_prediction(application, probability, band)
+            self._move_demo_application(
+                application,
+                target_status,
+                site,
+                coordinator,
+                scheduled_for,
+            )
+            if username == 'demo06@example.com' and not application.band_overridden:
+                application.ml2_band = Application.Band.MEDIUM
+                application.save(update_fields=['ml2_band', 'updated_at'])
+                override_band(
+                    application,
+                    Application.Band.HIGH,
+                    'Coordinator review supports this stronger match.',
+                    coordinator,
+                )
+
+    def _set_demo_prediction(self, application, probability, band):
+        prediction = application.prediction_logs.filter(
+            model_name=PredictionLog.ModelName.ML2
+        ).order_by('-created_at', '-pk').first()
+        application.ml2_probability = probability
+        if not application.band_overridden:
+            application.ml2_band = band
+        application.ml2_model_version = (
+            prediction.model_version if prediction else 'ml2-v1.0'
+        )
+        application.save(update_fields=[
+            'ml2_probability',
+            'ml2_band',
+            'ml2_model_version',
+            'updated_at',
+        ])
+        if prediction and prediction.succeeded:
+            prediction.output = {
+                'probability': probability,
+                'band': band,
+            }
+            prediction.save(update_fields=['output', 'updated_at'])
+
+    def _move_demo_application(
+        self, application, target_status, site, coordinator, scheduled_for
+    ):
+        if application.status == target_status:
+            return
+        if application.status == Application.Status.SUBMITTED:
+            change_status(
+                application,
+                Application.Status.UNDER_REVIEW,
+                actor=coordinator,
+                actor_role='coordinator',
+                note='Application reviewed for the demonstration.',
+            )
+        if application.status == Application.Status.UNDER_REVIEW:
+            if target_status == Application.Status.UNDER_REVIEW:
+                return
+            shortlist_applicant(application, coordinator)
+        if target_status == Application.Status.SHORTLISTED:
+            return
+        if application.status == Application.Status.SHORTLISTED:
+            screening_time = (
+                scheduled_for
+                if target_status == Application.Status.SCREENING_SCHEDULED
+                else timezone.now() + timedelta(days=1)
+            )
+            schedule_screening(
+                application,
+                screening_time,
+                site,
+                coordinator,
+            )
+        if target_status == Application.Status.SCREENING_SCHEDULED:
+            return
+        if application.status == Application.Status.SCREENING_SCHEDULED:
+            record_screening_outcome(application, True, coordinator)
+        if target_status == Application.Status.SCREENING_PASSED:
+            return
+        if target_status == Application.Status.WAITLISTED:
+            waitlist_applicant(application, coordinator)
+        elif target_status == Application.Status.ENROLLED:
+            enrol_applicant(application, coordinator)
+        elif target_status != Application.Status.UNDER_REVIEW:
+            raise ValueError(f'Cannot seed {target_status} from {application.status}.')
 
     def get_or_submit_application(
         self, profile, study, site, disqualify=False

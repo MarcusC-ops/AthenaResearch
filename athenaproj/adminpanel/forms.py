@@ -1,6 +1,6 @@
 from django import forms
 
-from core.models import Condition, PreScreenQuestion, Site, Study, StudyCategory
+from core.models import Application, Condition, PreScreenQuestion, Site, Study, StudyCategory
 
 
 class StudyForm(forms.ModelForm):
@@ -198,3 +198,94 @@ class PreScreenQuestionForm(forms.ModelForm):
         self.fields['options'].widget = forms.Textarea(
             attrs={'class': 'form-control', 'rows': 4}
         )
+
+
+class ApplicantFilterForm(forms.Form):
+    band = forms.ChoiceField(
+        required=False,
+        label='Band',
+        choices=[('', 'All bands'), *Application.Band.choices],
+    )
+    site = forms.ModelChoiceField(
+        queryset=Site.objects.none(),
+        required=False,
+        label='Preferred site',
+    )
+    availability = forms.ChoiceField(
+        required=False,
+        label='Availability',
+        choices=[('', 'All availability'), *Study.VisitTimes.choices],
+    )
+
+    def __init__(self, *args, study, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['site'].queryset = study.sites.order_by('name')
+        self.fields['site'].empty_label = 'All sites'
+
+        for field in self.fields.values():
+            field.widget.attrs['class'] = (
+                'form-select' if isinstance(field.widget, forms.Select) else 'form-control'
+            )
+
+
+class ScreeningScheduleForm(forms.Form):
+    when = forms.DateTimeField(
+        label='Date and time',
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M',
+            attrs={'class': 'form-control', 'type': 'datetime-local'},
+        ),
+    )
+    site = forms.ModelChoiceField(
+        queryset=Site.objects.none(),
+        label='Site',
+        widget=forms.Select(attrs={'class': 'form-select'}),
+    )
+
+    def __init__(self, *args, study, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['site'].queryset = study.sites.order_by('name')
+
+
+class NotSelectedForm(forms.Form):
+    reason = forms.CharField(
+        required=False,
+        label='Reason',
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+    )
+
+
+class ScreeningOutcomeForm(forms.Form):
+    note = forms.CharField(
+        required=False,
+        label='Note',
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+    )
+
+
+class OverrideBandForm(forms.Form):
+    new_band = forms.ChoiceField(
+        label='New band',
+        widget=forms.RadioSelect,
+    )
+    reason = forms.CharField(
+        label='Reason',
+        min_length=10,
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+    )
+
+    def __init__(self, *args, current_band, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['new_band'].choices = [
+            choice for choice in Application.Band.choices
+            if choice[0] != current_band and choice[0] != Application.Band.UNSCORED
+        ]
+        self.fields['new_band'].widget.attrs['class'] = 'form-check-input'
+
+    def clean_reason(self):
+        reason = self.cleaned_data['reason'].strip()
+        if len(reason) < 10:
+            raise forms.ValidationError(
+                'Give a reason of at least 10 characters.'
+            )
+        return reason

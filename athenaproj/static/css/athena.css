@@ -106,3 +106,36 @@ a {
   font-weight: 500;
   padding: 0.55rem 0.8rem;
 }
+
+.priority-pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.priority-high {
+  background: #e4f4e8;
+  color: #155724;
+}
+
+.priority-medium {
+  background: #fff3cd;
+  color: #664d03;
+}
+
+.priority-low {
+  background: #f8d7da;
+  color: #842029;
+}
+
+.priority-unscored {
+  background: #e9ecef;
+  color: #343a40;
+}
+
+.form-check-input[type="radio"] {
+  border-radius: 50%;
+}
