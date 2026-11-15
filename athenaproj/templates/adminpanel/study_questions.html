@@ -1,0 +1,51 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Pre-screen questions · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <h1>Pre-screen questions</h1>
+  <p><a href="{% url 'adminpanel:study_detail' study.pk %}">{{ study.title }}</a></p>
+  <div class="row g-4 mt-2">
+    <div class="col-xl-7">
+      {% for question in questions %}
+        <section class="card p-4 mb-3">
+          <div class="d-flex justify-content-between gap-3">
+            <div>
+              <span class="text-muted">Question {{ question.order }}</span>
+              <h2 class="mt-1">{{ question.text }}</h2>
+              <ul class="mb-0">
+                {% for option in question.option_list %}
+                  <li>{{ option }}
+                    {% if option == question.preferred_answer %}<span class="badge text-bg-light">Preferred</span>{% endif %}
+                    {% if option == question.disqualifying_answer %}<span class="badge text-bg-light">Disqualifies</span>{% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+            <div class="d-flex align-items-start gap-2">
+              <a href="{% url 'adminpanel:study_question_edit' study.pk question.pk %}">Edit</a>
+              <a href="{% url 'adminpanel:study_question_delete' study.pk question.pk %}">Delete</a>
+            </div>
+          </div>
+        </section>
+      {% empty %}
+        <p>No pre-screen questions yet.</p>
+      {% endfor %}
+    </div>
+    <div class="col-xl-5">
+      <section class="card p-4">
+        <h2>Add a question</h2>
+        <form method="post">
+          {% csrf_token %}
+          {% if form.non_field_errors %}<div class="alert alert-danger">{% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}</div>{% endif %}
+          {% for field in form %}
+            {% include 'adminpanel/_form_field.html' with field=field %}
+          {% endfor %}
+          <button class="btn btn-primary" type="submit">Add question</button>
+        </form>
+      </section>
+    </div>
+  </div>
+</div>
+{% endblock %}

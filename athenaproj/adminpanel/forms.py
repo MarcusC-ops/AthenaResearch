@@ -1,0 +1,200 @@
+from django import forms
+
+from core.models import Condition, PreScreenQuestion, Site, Study, StudyCategory
+
+
+class StudyForm(forms.ModelForm):
+    class Meta:
+        model = Study
+        fields = [
+            'title',
+            'category',
+            'study_type',
+            'phase',
+            'description',
+            'visit_plan',
+            'accepts_healthy_volunteers',
+            'sex_eligibility',
+            'min_age',
+            'max_age',
+            'min_bmi',
+            'max_bmi',
+            'smoker_rule',
+            'required_conditions',
+            'excluded_conditions',
+            'regions',
+            'sites',
+            'target_enrolment',
+            'total_visits',
+            'duration_weeks',
+            'visit_times',
+            'compensation_amount',
+            'show_compensation',
+            'start_date',
+            'recruitment_deadline',
+            'irb_name',
+            'irb_reference',
+            'irb_expiry',
+            'irb_approved_text',
+            'auto_shortlist_high',
+        ]
+        labels = {
+            'accepts_healthy_volunteers': 'Healthy volunteers welcome',
+            'sex_eligibility': 'Sex',
+            'min_age': 'Minimum age',
+            'max_age': 'Maximum age',
+            'min_bmi': 'Minimum BMI',
+            'max_bmi': 'Maximum BMI',
+            'smoker_rule': 'Smoking',
+            'required_conditions': 'Must have',
+            'excluded_conditions': 'Not suitable if they have',
+            'regions': 'Where participants must live (regions; leave empty for anywhere)',
+            'target_enrolment': 'Target enrolment',
+            'total_visits': 'Total visits',
+            'duration_weeks': 'Duration (weeks)',
+            'visit_times': 'Visit times',
+            'compensation_amount': 'Amount (S$)',
+            'show_compensation': 'Show the amount on the listing',
+            'start_date': 'Start date',
+            'recruitment_deadline': 'Recruitment deadline',
+            'irb_expiry': 'IRB approval expiry',
+            'irb_approved_text': 'The listing text is the version approved by the IRB',
+            'auto_shortlist_high': 'Auto-shortlist High band applicants',
+        }
+        help_texts = {
+            'description': (
+                'Plain language. Do not use payment-led wording such as earn, free or '
+                'guaranteed (BR-11).'
+            ),
+            'visit_plan': 'One line per visit.',
+            'show_compensation': (
+                'Tick only if the ethics board approved showing the amount.'
+            ),
+            'auto_shortlist_high': (
+                'When on, applicants the screening model rates High move straight to '
+                'Shortlisted (BR-08). You can change this at any time.'
+            ),
+        }
+
+    def __init__(self, *args, organisation, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.organisation = organisation
+        self.fields['category'].queryset = StudyCategory.objects.filter(
+            is_active=True
+        ).order_by('display_order')
+        self.fields['required_conditions'].queryset = Condition.objects.filter(
+            is_active=True
+        ).order_by('name')
+        self.fields['excluded_conditions'].queryset = Condition.objects.filter(
+            is_active=True
+        ).order_by('name')
+        self.fields['sites'].queryset = Site.objects.filter(
+            organisation=organisation,
+            is_active=True,
+        ).order_by('name')
+
+        for field in self.fields.values():
+            if isinstance(field.widget, (forms.CheckboxInput, forms.CheckboxSelectMultiple)):
+                field.widget.attrs['class'] = 'form-check-input'
+            elif isinstance(field.widget, forms.Select):
+                field.widget.attrs['class'] = 'form-select'
+            else:
+                field.widget.attrs['class'] = 'form-control'
+        for name in ('required_conditions', 'excluded_conditions', 'regions', 'sites'):
+            self.fields[name].widget = forms.CheckboxSelectMultiple(
+                attrs={'class': 'form-check-input'}
+            )
+        self.fields['description'].widget = forms.Textarea(
+            attrs={'class': 'form-control', 'rows': 4}
+        )
+        self.fields['visit_plan'].widget = forms.Textarea(
+            attrs={'class': 'form-control', 'rows': 4}
+        )
+        for name in ('start_date', 'recruitment_deadline', 'irb_expiry'):
+            self.fields[name].widget = forms.DateInput(
+                attrs={'class': 'form-control', 'type': 'date'}
+            )
+        for name in (
+            'show_compensation',
+            'accepts_healthy_volunteers',
+            'irb_approved_text',
+            'auto_shortlist_high',
+        ):
+            self.fields[name].widget.attrs['class'] = 'form-check-input'
+
+    def clean(self):
+        cleaned_data = super().clean()
+        minimum_age = cleaned_data.get('min_age')
+        maximum_age = cleaned_data.get('max_age')
+        if (
+            minimum_age is not None
+            and maximum_age is not None
+            and maximum_age < minimum_age
+        ):
+            self.add_error('max_age', 'Maximum age must be at least the minimum age.')
+
+        minimum_bmi = cleaned_data.get('min_bmi')
+        maximum_bmi = cleaned_data.get('max_bmi')
+        if (
+            minimum_bmi is not None
+            and maximum_bmi is not None
+            and maximum_bmi < minimum_bmi
+        ):
+            self.add_error('max_bmi', 'Maximum BMI must be at least the minimum BMI.')
+
+        start_date = cleaned_data.get('start_date')
+        deadline = cleaned_data.get('recruitment_deadline')
+        if start_date and deadline and deadline <= start_date:
+            self.add_error(
+                'recruitment_deadline',
+                'The recruitment deadline must be after the start date.',
+            )
+
+        study_type = cleaned_data.get('study_type')
+        phase = cleaned_data.get('phase')
+        if (
+            study_type
+            and phase
+            and phase != Study.Phase.NOT_APPLICABLE
+            and study_type != Study.StudyType.INTERVENTIONAL
+        ):
+            self.add_error('phase', 'Only interventional studies have a phase.')
+
+        required = cleaned_data.get('required_conditions')
+        excluded = cleaned_data.get('excluded_conditions')
+        if required is not None and excluded is not None:
+            if required.filter(pk__in=excluded.values('pk')).exists():
+                self.add_error(
+                    'excluded_conditions',
+                    'A condition cannot be both required and excluded.',
+                )
+
+        sites = cleaned_data.get('sites')
+        if sites is not None:
+            allowed_site_ids = set(self.fields['sites'].queryset.values_list('pk', flat=True))
+            if not sites.exists():
+                self.add_error('sites', 'Choose at least one site.')
+            elif any(site.pk not in allowed_site_ids for site in sites):
+                self.add_error('sites', 'Choose sites from your organisation.')
+        return cleaned_data
+
+
+class PreScreenQuestionForm(forms.ModelForm):
+    class Meta:
+        model = PreScreenQuestion
+        fields = ['text', 'options', 'preferred_answer', 'disqualifying_answer', 'order']
+        labels = {
+            'text': 'Question',
+            'options': 'Options (one per line)',
+            'preferred_answer': 'Preferred answer (optional)',
+            'disqualifying_answer': 'Disqualifying answer (optional)',
+            'order': 'Order',
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs['class'] = 'form-control'
+        self.fields['options'].widget = forms.Textarea(
+            attrs={'class': 'form-control', 'rows': 4}
+        )

@@ -4,11 +4,13 @@ from dataclasses import dataclass
 from datetime import timedelta
 from collections import defaultdict
 from decimal import Decimal, ROUND_HALF_UP
+import re
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Avg, Case, Count, Q, Sum, Value, When
+from django.db.models.deletion import ProtectedError, RestrictedError
 from django.utils import timezone
 
 from .models import (
@@ -22,6 +24,7 @@ from .models import (
     Organisation,
     ParticipantProfile,
     Payout,
+    PreScreenQuestion,
     PredictionLog,
     Region,
     Review,
@@ -136,6 +139,291 @@ def get_public_study(slug):
 
 def get_study(study_id):
     return Study.objects.get(pk=study_id)
+
+
+def _panel_study_queryset(user):
+    role = user_role(user)
+    if role == 'coordinator':
+        organisation_id = getattr(
+            getattr(user, 'staff_profile', None), 'organisation_id', None
+        )
+        return Study.objects.filter(organisation_id=organisation_id)
+    if role in ('staff', 'admin'):
+        return Study.objects.all()
+    return Study.objects.none()
+
+
+def panel_studies(user, status=''):
+    studies = _panel_study_queryset(user).select_related(
+        'organisation', 'category'
+    ).annotate(
+        panel_application_count=Count('applications', distinct=True),
+        panel_enrolled_count=Count(
+            'applications',
+            filter=Q(applications__status__in=[
+                Application.Status.ENROLLED,
+                Application.Status.COMPLETED,
+            ]),
+            distinct=True,
+        ),
+    ).order_by('-updated_at', '-id')
+    if status:
+        studies = studies.filter(status=status)
+    return studies
+
+
+def get_panel_study(user, study_id):
+    try:
+        return _panel_study_queryset(user).select_related(
+            'organisation', 'category'
+        ).prefetch_related(
+            'sites__region', 'regions', 'required_conditions',
+            'excluded_conditions', 'pre_screen_questions',
+        ).annotate(
+            panel_enrolled_count=Count(
+                'applications',
+                filter=Q(applications__status__in=[
+                    Application.Status.ENROLLED,
+                    Application.Status.COMPLETED,
+                ]),
+                distinct=True,
+            ),
+        ).get(pk=study_id)
+    except Study.DoesNotExist:
+        raise Study.DoesNotExist
+
+
+def _coordinator_organisation(user):
+    if user_role(user) != 'coordinator':
+        raise Study.DoesNotExist
+    try:
+        organisation = user.staff_profile.organisation
+    except StaffProfile.DoesNotExist:
+        raise Study.DoesNotExist
+    if organisation is None:
+        raise Study.DoesNotExist
+    return organisation
+
+
+def _editable_study(study):
+    if study.status not in (
+        Study.Status.DRAFT,
+        Study.Status.CHANGES_REQUESTED,
+    ):
+        raise ValidationError('Only draft or returned listings can be edited.')
+
+
+@transaction.atomic
+def create_study(form, user):
+    organisation = _coordinator_organisation(user)
+    study = form.save(commit=False)
+    study.organisation = organisation
+    study.status = Study.Status.DRAFT
+    study.created_by = user
+    study.last_edited_by = user
+    study.save()
+    form.save_m2m()
+    return study
+
+
+@transaction.atomic
+def update_study(form, user):
+    visible_study = get_panel_study(user, form.instance.pk)
+    if user_role(user) != 'coordinator':
+        raise Study.DoesNotExist
+    _editable_study(visible_study)
+    study = form.save(commit=False)
+    study.last_edited_by = user
+    study.save()
+    form.save_m2m()
+    return study
+
+
+@dataclass(frozen=True)
+class CheckResult:
+    code: str
+    label: str
+    passed: bool
+    detail: str = ''
+
+
+PAYMENT_LED_WORDING = re.compile(
+    r'\b(?:earn|free|fast\s+cash|easy\s+money|guaranteed)\b',
+    re.IGNORECASE,
+)
+
+
+def run_compliance_checks(study):
+    wording = ' '.join((study.title or '', study.description or '', study.visit_plan or ''))
+    matches = []
+    for match in PAYMENT_LED_WORDING.finditer(wording):
+        phrase = ' '.join(match.group(0).lower().split())
+        matches.append(phrase)
+
+    eligibility_failures = []
+    if study.min_age is None or study.max_age is None or study.min_age > study.max_age:
+        eligibility_failures.append('Age limits are not in order.')
+    if (
+        study.min_bmi is not None
+        and study.max_bmi is not None
+        and study.min_bmi > study.max_bmi
+    ):
+        eligibility_failures.append('BMI limits are not in order.')
+    if not study.sites.exists():
+        eligibility_failures.append('Choose at least one site.')
+    if (
+        study.start_date is None
+        or study.recruitment_deadline is None
+        or study.recruitment_deadline <= study.start_date
+    ):
+        eligibility_failures.append(
+            'The recruitment deadline must be after the start date.'
+        )
+    if (
+        study.recruitment_deadline is not None
+        and study.recruitment_deadline < timezone.localdate()
+    ):
+        eligibility_failures.append('The recruitment deadline must not be in the past.')
+
+    return [
+        CheckResult(
+            'irb_reference',
+            'IRB name and reference present',
+            bool(study.irb_name.strip() and study.irb_reference.strip()),
+            '' if study.irb_name.strip() and study.irb_reference.strip()
+            else 'Enter the IRB name and reference.',
+        ),
+        CheckResult(
+            'irb_expiry',
+            'IRB approval valid past the recruitment deadline',
+            bool(
+                study.irb_expiry
+                and study.recruitment_deadline
+                and study.irb_expiry > study.recruitment_deadline
+            ),
+            '' if (
+                study.irb_expiry
+                and study.recruitment_deadline
+                and study.irb_expiry > study.recruitment_deadline
+            ) else 'IRB approval must expire after the recruitment deadline.',
+        ),
+        CheckResult(
+            'irb_text',
+            'Listing text approved by the IRB',
+            study.irb_approved_text,
+            '' if study.irb_approved_text else 'Confirm the listing text is IRB-approved.',
+        ),
+        CheckResult(
+            'wording',
+            'No payment-led wording',
+            not matches,
+            '' if not matches else f"Found: {', '.join(matches)}.",
+        ),
+        CheckResult(
+            'compensation',
+            'Compensation display consistent with IRB approval',
+            (
+                not study.show_compensation
+                or (
+                    study.compensation_amount is not None
+                    and study.compensation_amount > 0
+                    and study.irb_approved_text
+                )
+            ),
+            '' if (
+                not study.show_compensation
+                or (
+                    study.compensation_amount is not None
+                    and study.compensation_amount > 0
+                    and study.irb_approved_text
+                )
+            ) else 'Showing compensation requires a positive amount and IRB-approved text.',
+        ),
+        CheckResult(
+            'eligibility',
+            'Eligibility ranges make sense and at least one site',
+            not eligibility_failures,
+            '; '.join(eligibility_failures),
+        ),
+        CheckResult(
+            'questions',
+            'Pre-screen questions added',
+            study.pre_screen_questions.exists(),
+            '' if study.pre_screen_questions.exists()
+            else 'Add at least one pre-screen question.',
+        ),
+    ]
+
+
+def _editable_question_study(study):
+    _editable_study(study)
+
+
+@transaction.atomic
+def create_pre_screen_question(study, form):
+    _editable_question_study(study)
+    question = form.save(commit=False)
+    question.study = study
+    question.save()
+    return question
+
+
+@transaction.atomic
+def update_pre_screen_question(study, question, form):
+    _editable_question_study(study)
+    if question.study_id != study.pk:
+        raise PreScreenQuestion.DoesNotExist
+    updated = form.save(commit=False)
+    updated.study = study
+    updated.save()
+    return updated
+
+
+@transaction.atomic
+def delete_pre_screen_question(study, question_id):
+    _editable_question_study(study)
+    question = study.pre_screen_questions.get(pk=question_id)
+    try:
+        question.delete()
+    except (ProtectedError, RestrictedError) as error:
+        raise ValidationError(
+            'This question has answers, so it cannot be deleted.'
+        ) from error
+
+
+@transaction.atomic
+def submit_study_for_review(study, user):
+    organisation = _coordinator_organisation(user)
+    study = get_panel_study(user, study.pk)
+    if study.organisation_id != organisation.pk:
+        raise Study.DoesNotExist
+    _editable_study(study)
+    if not all(check.passed for check in run_compliance_checks(study)):
+        raise ValidationError('Fix the failed checks before you submit.')
+    study.status = Study.Status.PENDING_REVIEW
+    study.submitted_at = timezone.now()
+    study.save(update_fields=['status', 'submitted_at', 'updated_at'])
+    notify_staff(
+        f'{study.organisation.name} submitted {study.title} for review.',
+        f'/panel/moderation/{study.pk}/',
+    )
+    return study
+
+
+@transaction.atomic
+def set_auto_shortlist(study, on, user):
+    visible_study = get_panel_study(user, study.pk)
+    if visible_study.status not in (
+        Study.Status.PUBLISHED,
+        Study.Status.FULL,
+        Study.Status.PAUSED,
+    ):
+        raise ValidationError(
+            'Auto-shortlist can only be changed on published, full or paused listings.'
+        )
+    visible_study.auto_shortlist_high = bool(on)
+    visible_study.save(update_fields=['auto_shortlist_high', 'updated_at'])
+    return visible_study
 
 
 def add_to_shortlist(profile, study_id):

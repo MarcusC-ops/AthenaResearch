@@ -1,0 +1,10 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Preview · {{ study.title }} · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="alert alert-info" role="status">This is how participants will see your listing.</div>
+</div>
+{% include 'storefront/_study_body.html' %}
+{% endblock %}

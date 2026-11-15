@@ -1,0 +1,79 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}{{ heading }} · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <h1 class="mb-4">{{ heading }}</h1>
+  <form method="post" class="row g-4">
+    {% csrf_token %}
+    <div class="col-xl-8">
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger">{% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}</div>
+      {% endif %}
+      <section class="card p-4 mb-3">
+        <h2>1. Basics</h2>
+        {% include 'adminpanel/_form_field.html' with field=form.title %}
+        {% include 'adminpanel/_form_field.html' with field=form.category %}
+        {% include 'adminpanel/_form_field.html' with field=form.study_type %}
+        {% include 'adminpanel/_form_field.html' with field=form.phase %}
+        {% include 'adminpanel/_form_field.html' with field=form.description %}
+        {% include 'adminpanel/_form_field.html' with field=form.visit_plan %}
+      </section>
+      <section class="card p-4 mb-3">
+        <h2>2. Eligibility</h2>
+        {% include 'adminpanel/_form_field.html' with field=form.accepts_healthy_volunteers %}
+        {% include 'adminpanel/_form_field.html' with field=form.sex_eligibility %}
+        <div class="row">
+          <div class="col-md-6">{% include 'adminpanel/_form_field.html' with field=form.min_age %}</div>
+          <div class="col-md-6">{% include 'adminpanel/_form_field.html' with field=form.max_age %}</div>
+          <div class="col-md-6">{% include 'adminpanel/_form_field.html' with field=form.min_bmi %}</div>
+          <div class="col-md-6">{% include 'adminpanel/_form_field.html' with field=form.max_bmi %}</div>
+        </div>
+        {% include 'adminpanel/_form_field.html' with field=form.smoker_rule %}
+        {% include 'adminpanel/_form_field.html' with field=form.required_conditions %}
+        {% include 'adminpanel/_form_field.html' with field=form.excluded_conditions %}
+        {% include 'adminpanel/_form_field.html' with field=form.regions %}
+      </section>
+      <section class="card p-4 mb-3">
+        <h2>3. Logistics</h2>
+        {% include 'adminpanel/_form_field.html' with field=form.sites %}
+        <div class="row">
+          <div class="col-md-6">{% include 'adminpanel/_form_field.html' with field=form.target_enrolment %}</div>
+          <div class="col-md-6">{% include 'adminpanel/_form_field.html' with field=form.total_visits %}</div>
+          <div class="col-md-6">{% include 'adminpanel/_form_field.html' with field=form.duration_weeks %}</div>
+          <div class="col-md-6">{% include 'adminpanel/_form_field.html' with field=form.visit_times %}</div>
+          <div class="col-md-6">{% include 'adminpanel/_form_field.html' with field=form.start_date %}</div>
+          <div class="col-md-6">{% include 'adminpanel/_form_field.html' with field=form.recruitment_deadline %}</div>
+        </div>
+      </section>
+      <section class="card p-4 mb-3">
+        <h2>4. Compensation</h2>
+        {% include 'adminpanel/_form_field.html' with field=form.compensation_amount %}
+        {% include 'adminpanel/_form_field.html' with field=form.show_compensation %}
+      </section>
+      <section class="card p-4 mb-3">
+        <h2>5. Compliance</h2>
+        {% include 'adminpanel/_form_field.html' with field=form.irb_name %}
+        {% include 'adminpanel/_form_field.html' with field=form.irb_reference %}
+        {% include 'adminpanel/_form_field.html' with field=form.irb_expiry %}
+        {% include 'adminpanel/_form_field.html' with field=form.irb_approved_text %}
+      </section>
+      <section class="card p-4 mb-3">
+        <h2>6. Automation</h2>
+        {% include 'adminpanel/_form_field.html' with field=form.auto_shortlist_high %}
+      </section>
+      <div class="d-flex gap-2">
+        <button class="btn btn-primary" type="submit">Save as draft</button>
+        <a class="btn btn-outline-secondary" href="{% if study %}{% url 'adminpanel:study_detail' study.pk %}{% else %}{% url 'adminpanel:study_list' %}{% endif %}">Cancel</a>
+      </div>
+    </div>
+    <aside class="col-xl-4">
+      <div class="card p-4">
+        <h2>Before you submit</h2>
+        <p class="mb-0">Add at least one pre-screen question, check the IRB details and preview the listing. Submitting runs the compliance checklist.</p>
+      </div>
+    </aside>
+  </form>
+</div>
+{% endblock %}

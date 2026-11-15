@@ -10,4 +10,21 @@ urlpatterns = [
     path('logout/', views.PanelLogoutView.as_view(), name='logout'),
     path('notifications/', views.notifications, name='notifications'),
     path('notifications/read/', views.mark_notifications_read, name='mark_notifications_read'),
+    path('studies/', views.study_list, name='study_list'),
+    path('studies/new/', views.study_new, name='study_new'),
+    path('studies/<int:study_id>/', views.study_detail, name='study_detail'),
+    path('studies/<int:study_id>/edit/', views.study_edit, name='study_edit'),
+    path('studies/<int:study_id>/questions/', views.study_questions, name='study_questions'),
+    path(
+        'studies/<int:study_id>/questions/<int:question_id>/edit/',
+        views.study_question_edit,
+        name='study_question_edit',
+    ),
+    path(
+        'studies/<int:study_id>/questions/<int:question_id>/delete/',
+        views.study_question_delete,
+        name='study_question_delete',
+    ),
+    path('studies/<int:study_id>/preview/', views.study_preview, name='study_preview'),
+    path('studies/<int:study_id>/submit/', views.study_submit, name='study_submit'),
 ]

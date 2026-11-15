@@ -1,0 +1,79 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}{{ study.title }} · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+    <div>
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <h1 class="mb-0">{{ study.title }}</h1>
+        <span class="badge text-bg-light">{{ study.get_status_display }}</span>
+      </div>
+      <p class="mt-2">{{ study.category.name }} · {{ study.get_study_type_display }} · {{ study.panel_enrolled_count }} of {{ study.target_enrolment }} enrolled · Auto-shortlist {% if study.auto_shortlist_high %}on{% else %}off{% endif %}</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      {% if study.status == 'draft' or study.status == 'changes_requested' %}
+        {% if user_role == 'coordinator' %}
+          <a class="btn btn-primary" href="{% url 'adminpanel:study_edit' study.pk %}">Edit</a>
+          <a class="btn btn-outline-primary" href="{% url 'adminpanel:study_questions' study.pk %}">Pre-screen questions</a>
+        {% endif %}
+        <a class="btn btn-outline-primary" href="{% url 'adminpanel:study_preview' study.pk %}">Preview</a>
+        {% if user_role == 'coordinator' %}<a class="btn btn-outline-primary" href="{% url 'adminpanel:study_submit' study.pk %}">Submit for review</a>{% endif %}
+      {% elif study.status == 'published' or study.status == 'full' or study.status == 'paused' %}
+        <a class="btn btn-outline-primary" href="{% url 'adminpanel:study_preview' study.pk %}">Preview</a>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="toggle_auto_shortlist">
+          <button class="btn btn-outline-primary" type="submit">Change auto-shortlist</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if study.status == 'changes_requested' %}
+    <div class="alert alert-warning mt-3">
+      <strong>Comments from Athena</strong>
+      <p class="mb-0">{{ study.moderation_comments }}</p>
+    </div>
+  {% endif %}
+  {% if study.status == 'paused' %}
+    <div class="alert alert-warning mt-3">
+      <strong>Paused</strong>
+      <p class="mb-0">{{ study.paused_reason }}</p>
+    </div>
+  {% endif %}
+
+  <div class="row g-4 mt-2">
+    <div class="col-lg-8">
+      <section class="card p-4 mb-3">
+        <h2>Study summary</h2>
+        <dl class="row mb-0">
+          <dt class="col-sm-4">Description</dt><dd class="col-sm-8">{{ study.description }}</dd>
+          <dt class="col-sm-4">Phase</dt><dd class="col-sm-8">{{ study.get_phase_display }}</dd>
+          <dt class="col-sm-4">Healthy volunteers</dt><dd class="col-sm-8">{% if study.accepts_healthy_volunteers %}Welcome{% else %}Not specified{% endif %}</dd>
+          <dt class="col-sm-4">Age</dt><dd class="col-sm-8">{{ study.min_age }} to {{ study.max_age }} years</dd>
+          <dt class="col-sm-4">BMI</dt><dd class="col-sm-8">{{ study.min_bmi|default:'Any' }} to {{ study.max_bmi|default:'Any' }}</dd>
+          <dt class="col-sm-4">Smoking</dt><dd class="col-sm-8">{{ study.get_smoker_rule_display }}</dd>
+          <dt class="col-sm-4">Must have</dt><dd class="col-sm-8">{% for condition in study.required_conditions.all %}{{ condition.name }}{% if not forloop.last %}, {% endif %}{% empty %}None{% endfor %}</dd>
+          <dt class="col-sm-4">Not suitable if they have</dt><dd class="col-sm-8">{% for condition in study.excluded_conditions.all %}{{ condition.name }}{% if not forloop.last %}, {% endif %}{% empty %}None{% endfor %}</dd>
+          <dt class="col-sm-4">Where participants must live</dt><dd class="col-sm-8">{% for region in study.regions.all %}{{ region.name }}{% if not forloop.last %}, {% endif %}{% empty %}Anywhere in Singapore{% endfor %}</dd>
+          <dt class="col-sm-4">Sites</dt><dd class="col-sm-8">{% for site in study.sites.all %}{{ site.name }}{% if not forloop.last %}, {% endif %}{% empty %}None{% endfor %}</dd>
+          <dt class="col-sm-4">Target enrolment</dt><dd class="col-sm-8">{{ study.target_enrolment }}</dd>
+          <dt class="col-sm-4">Total visits</dt><dd class="col-sm-8">{{ study.total_visits }}</dd>
+          <dt class="col-sm-4">Duration</dt><dd class="col-sm-8">{{ study.duration_weeks }} weeks</dd>
+          <dt class="col-sm-4">Visit times</dt><dd class="col-sm-8">{{ study.get_visit_times_display }}</dd>
+          <dt class="col-sm-4">Start date</dt><dd class="col-sm-8">{{ study.start_date|date:"j M Y" }}</dd>
+          <dt class="col-sm-4">Recruitment deadline</dt><dd class="col-sm-8">{{ study.recruitment_deadline|date:"j M Y" }}</dd>
+          <dt class="col-sm-4">Amount (S$)</dt><dd class="col-sm-8">{% if study.show_compensation %}{{ study.compensation_amount }}{% else %}Compensation for time and travel is provided{% endif %}</dd>
+          <dt class="col-sm-4">IRB</dt><dd class="col-sm-8">{{ study.irb_name }}{% if study.irb_reference %} · {{ study.irb_reference }}{% endif %}{% if study.irb_expiry %} · expires {{ study.irb_expiry|date:"j M Y" }}{% endif %}</dd>
+          <dt class="col-sm-4">Pre-screen questions</dt><dd class="col-sm-8">{{ study.pre_screen_questions.count }}</dd>
+        </dl>
+      </section>
+    </div>
+    {% if user_role == 'staff' or user_role == 'admin' %}
+      <div class="col-lg-4"><div class="card p-4"><h2>Organisation</h2><p class="mb-0">{{ study.organisation.name }}</p></div></div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

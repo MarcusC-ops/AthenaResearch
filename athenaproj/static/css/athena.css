@@ -94,3 +94,15 @@ a {
 .progress-bar {
   background-color: var(--athena-blue);
 }
+
+.study-status-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.study-status-tabs .badge {
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 0.55rem 0.8rem;
+}

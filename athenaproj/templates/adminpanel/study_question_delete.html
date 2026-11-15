@@ -1,0 +1,17 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Delete this question? · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid form-narrow">
+  <h1>Delete this question?</h1>
+  <section class="card p-4 mt-4">
+    <p>{{ question.text }}</p>
+    <form method="post" class="d-flex gap-2">
+      {% csrf_token %}
+      <button class="btn btn-primary" type="submit">Delete</button>
+      <a class="btn btn-outline-secondary" href="{% url 'adminpanel:study_questions' study.pk %}">Cancel</a>
+    </form>
+  </section>
+</div>
+{% endblock %}
