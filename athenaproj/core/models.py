@@ -307,7 +307,8 @@ class Study(TimeStampedModel):
 
     @property
     def places_left(self):
-        return self.target_enrolment
+        from .services import enrolled_count
+        return max(0, self.target_enrolment - enrolled_count(self))
 
 
 class PreScreenQuestion(TimeStampedModel):
@@ -437,6 +438,13 @@ class ParticipantProfile(TimeStampedModel):
     ml1_categories = models.JSONField(default=list, blank=True)
     ml1_model_version = models.CharField(max_length=50, blank=True)
     ml1_predicted_at = models.DateTimeField(null=True, blank=True)
+    first_application_category = models.ForeignKey(
+        'StudyCategory',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='first_applications',
+    )
 
     def __str__(self):
         return f'{self.user.get_full_name()} profile'
@@ -506,6 +514,13 @@ class PredictionLog(TimeStampedModel):
         blank=True,
         related_name='prediction_logs',
     )
+    application = models.ForeignKey(
+        'Application',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='prediction_logs',
+    )
     features = models.JSONField(default=dict)
     output = models.JSONField(default=dict)
     succeeded = models.BooleanField()
@@ -537,3 +552,147 @@ class Shortlist(TimeStampedModel):
 
     def __str__(self):
         return f'{self.participant.code}: {self.study.title}'
+
+
+class Application(TimeStampedModel):
+    class Status(models.TextChoices):
+        SUBMITTED = 'submitted', 'Submitted'
+        AUTO_DECLINED = 'auto_declined', 'Auto-declined'
+        UNDER_REVIEW = 'under_review', 'Under review'
+        WAITLISTED = 'waitlisted', 'Waitlisted'
+        SHORTLISTED = 'shortlisted', 'Shortlisted'
+        SCREENING_SCHEDULED = 'screening_scheduled', 'Screening scheduled'
+        SCREENING_PASSED = 'screening_passed', 'Screening passed'
+        SCREENING_FAILED = 'screening_failed', 'Screening failed'
+        ENROLLED = 'enrolled', 'Enrolled'
+        COMPLETED = 'completed', 'Completed'
+        NOT_SELECTED = 'not_selected', 'Not selected'
+        WITHDRAWN = 'withdrawn', 'Withdrawn'
+
+    class Band(models.TextChoices):
+        HIGH = 'high', 'High'
+        MEDIUM = 'medium', 'Medium'
+        LOW = 'low', 'Low'
+        UNSCORED = 'unscored', 'Unscored'
+
+    class Availability(models.TextChoices):
+        WEEKDAY_DAYTIME = 'weekday_daytime', 'Weekday daytime'
+        WEEKDAY_EVENINGS = 'weekday_evenings', 'Weekday evenings'
+        WEEKENDS = 'weekends', 'Weekends'
+        FLEXIBLE = 'flexible', 'Flexible'
+
+    class ScreeningOutcome(models.TextChoices):
+        PASSED = 'passed', 'Passed'
+        FAILED = 'failed', 'Failed'
+
+    participant = models.ForeignKey(
+        ParticipantProfile, on_delete=models.RESTRICT, related_name='applications'
+    )
+    study = models.ForeignKey(Study, on_delete=models.RESTRICT, related_name='applications')
+    status = models.CharField(max_length=25, choices=Status.choices, default=Status.SUBMITTED)
+    preferred_site = models.ForeignKey(
+        Site, on_delete=models.RESTRICT, related_name='applications'
+    )
+    availability = models.CharField(max_length=20, choices=Availability.choices)
+    consent_given_at = models.DateTimeField()
+    submitted_at = models.DateTimeField()
+    ml2_probability = models.FloatField(null=True, blank=True)
+    ml2_band = models.CharField(max_length=10, choices=Band.choices, default=Band.UNSCORED)
+    ml2_model_version = models.CharField(max_length=50, blank=True)
+    auto_shortlisted = models.BooleanField(default=False)
+    original_band = models.CharField(max_length=10, choices=Band.choices, blank=True)
+    band_overridden = models.BooleanField(default=False)
+    override_reason = models.TextField(blank=True)
+    overridden_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='overridden_applications',
+    )
+    overridden_at = models.DateTimeField(null=True, blank=True)
+    screening_outcome = models.CharField(
+        max_length=10, choices=ScreeningOutcome.choices, blank=True
+    )
+    outcome_recorded_at = models.DateTimeField(null=True, blank=True)
+    not_selected_reason = models.TextField(blank=True)
+    withdrawal_reason = models.TextField(blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['participant', 'study'], name='unique_application_pair'
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.reference}: {self.study.title}'
+
+    @property
+    def reference(self):
+        return f'A-{self.pk:04d}'
+
+
+class ApplicationAnswer(TimeStampedModel):
+    application = models.ForeignKey(
+        Application, on_delete=models.CASCADE, related_name='answers'
+    )
+    question = models.ForeignKey(
+        PreScreenQuestion, on_delete=models.RESTRICT, related_name='application_answers'
+    )
+    answer = models.CharField(max_length=250)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['application', 'question'], name='unique_answer_per_question'
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.application.reference}: {self.question.text}'
+
+    def clean(self):
+        if self.question_id and self.answer not in self.question.option_list():
+            raise ValidationError({'answer': 'Answer must be one of the question options.'})
+
+
+class ApplicationStatusEvent(TimeStampedModel):
+    class ActorRole(models.TextChoices):
+        SYSTEM = 'system', 'Athena'
+        PARTICIPANT = 'participant', 'You'
+        COORDINATOR = 'coordinator', 'Research team'
+        STAFF = 'staff', 'Athena team'
+
+    application = models.ForeignKey(
+        Application, on_delete=models.CASCADE, related_name='status_events'
+    )
+    from_status = models.CharField(max_length=25, choices=Application.Status.choices, blank=True)
+    to_status = models.CharField(max_length=25, choices=Application.Status.choices)
+    actor = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='application_events'
+    )
+    actor_role = models.CharField(max_length=15, choices=ActorRole.choices, default=ActorRole.SYSTEM)
+    note = models.TextField(blank=True)
+
+    def __str__(self):
+        return f'{self.application.reference}: {self.to_status}'
+
+
+class AppSetting(TimeStampedModel):
+    ml2_high_threshold = models.FloatField(default=0.70)
+    ml2_medium_threshold = models.FloatField(default=0.40)
+    updated_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='updated_app_settings',
+    )
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(ml2_medium_threshold__gt=0)
+                & Q(ml2_medium_threshold__lt=models.F('ml2_high_threshold'))
+                & Q(ml2_high_threshold__lt=1),
+                name='appsetting_threshold_order',
+            ),
+        ]
+
+    def __str__(self):
+        return 'Athena application settings'

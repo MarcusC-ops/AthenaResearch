@@ -9,6 +9,7 @@ from django.contrib.auth.models import Group, User
 from django.utils import timezone
 
 from core.models import (
+    Application,
     Condition,
     Organisation,
     PreScreenQuestion,
@@ -21,6 +22,7 @@ from core.models import (
     StaffProfile,
 )
 from core.validators import normalise_sg_mobile
+from core.services import change_status, submit_application
 
 
 def add_months(value, months):
@@ -43,6 +45,7 @@ class Command(BaseCommand):
         studies = self.create_studies(organisations, categories, sites, regions, conditions)
         self.create_questions(studies)
         self.create_people(organisations, regions, conditions)
+        self.create_full_study_applications(studies, regions, conditions)
         self.create_shortlists(studies)
 
         for label, model in (
@@ -174,6 +177,88 @@ class Command(BaseCommand):
                         'mobile': normalise_sg_mobile(mobile),
                     },
                 )
+
+        demo_names = [
+            ('Siti', 'Aminah'), ('Cheryl', 'Goh'), ('Arjun', 'Menon'),
+            ('Marcus', 'Teo'), ('Nadia', 'Ismail'), ('Ethan', 'Wong'),
+            ('Hui Min', 'Lee'), ('Ravi', 'Kumar'), ('Farah', 'Yusof'),
+            ('Jon', 'Ng'), ('Mei Lin', 'Chua'), ('Dev', 'Raj'),
+            ('Ivy', 'Ho'), ('Samir', 'Das'), ('Nur', 'Aziz'),
+            ('Grace', 'Ong'), ('Kai', 'Tan'), ('Maya', 'Pillai'),
+            ('Alicia', 'Lim'), ('Hafiz', 'Rahman'), ('Elaine', 'Koh'),
+            ('Vikram', 'Sethi'), ('Samantha', 'Low'), ('Imran', 'Salleh'),
+        ]
+        for index, (first_name, last_name) in enumerate(demo_names, 1):
+            email = f'demo{index:02d}@example.com'
+            user, _ = User.objects.get_or_create(username=email)
+            user.email = email
+            user.first_name = first_name
+            user.last_name = last_name
+            user.is_active = True
+            user.set_password(password)
+            user.save()
+            user.groups.set([Group.objects.get(name='Participant')])
+            profile, _ = ParticipantProfile.objects.get_or_create(
+                user=user,
+                defaults={
+                    'mobile': normalise_sg_mobile(f'8{index:07d}'),
+                    'terms_accepted_at': user.date_joined or timezone.now(),
+                },
+            )
+            profile.date_of_birth = timezone.localdate().replace(
+                year=timezone.localdate().year - (21 + index % 45)
+            )
+            profile.sex = 'female' if index % 2 else 'male'
+            profile.region = regions[list(regions)[index % len(regions)]]
+            profile.employment = 'full_time'
+            profile.education = 'degree'
+            profile.height_cm = '165.0'
+            profile.weight_kg = '68.0'
+            profile.smoker = index % 7 == 0
+            profile.activity_level = 'moderate'
+            profile.motivation = 'help_research'
+            profile.availability = 'flexible'
+            profile.max_travel_minutes = '60'
+            profile.consent_matching = index % 5 != 0
+            profile.consent_insights = index % 3 != 0
+            profile.consent_contact = True
+            profile.onboarding_completed_at = profile.onboarding_completed_at or timezone.now()
+            profile.save()
+            if index % 4 == 0:
+                profile.conditions.set([conditions['Hypertension']])
+            elif index % 4 == 1:
+                profile.conditions.set([conditions['Asthma']])
+            else:
+                profile.conditions.clear()
+            from core.services import refresh_interest_predictions
+            refresh_interest_predictions(profile)
+
+    def create_full_study_applications(self, studies, regions, conditions):
+        applicants = list(
+            ParticipantProfile.objects.filter(user__username__startswith='demo')
+            .order_by('id')[:6]
+        )
+        for study_title in ('Digital Puzzles for Older Adults', 'Blood Pressure at Home'):
+            study = studies[study_title]
+            questions = list(study.pre_screen_questions.all())
+            site = study.sites.first()
+            for profile in applicants[:3]:
+                if Application.objects.filter(participant=profile, study=study).exists():
+                    continue
+                if study_title == 'Blood Pressure at Home':
+                    profile.conditions.add(conditions['Hypertension'])
+                    profile.save(update_fields=['updated_at'])
+                answers = {question.pk: question.preferred_answer or question.option_list()[0]
+                           for question in questions}
+                application, created = submit_application(
+                    profile, study, answers, site.pk,
+                    'flexible', True,
+                )
+                if created:
+                    change_status(application, Application.Status.SHORTLISTED)
+                    change_status(application, Application.Status.SCREENING_SCHEDULED)
+                    change_status(application, Application.Status.SCREENING_PASSED)
+                    change_status(application, Application.Status.ENROLLED)
 
     def create_regions(self):
         values = [
