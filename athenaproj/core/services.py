@@ -1591,3 +1591,313 @@ def for_you_feed(profile):
 def personal_row(profile):
     feed = for_you_feed(profile)
     return feed['items'][:3] if feed['mode'] == 'personal' else []
+
+
+@transaction.atomic
+def save_visit_date(appointment, when, user):
+    """Set a visit date and reset status to proposed so participant confirms."""
+    if appointment.kind != Appointment.Kind.VISIT:
+        raise ValidationError('Only visit appointments can have dates scheduled.')
+    if appointment.application.status != Application.Status.ENROLLED:
+        raise ValidationError('This visit cannot be marked yet.')
+    if appointment.status not in [Appointment.Status.PROPOSED, Appointment.Status.CONFIRMED]:
+        raise ValidationError('This visit cannot be marked yet.')
+    appointment.scheduled_for = when
+    appointment.status = Appointment.Status.PROPOSED
+    appointment.save(update_fields=['scheduled_for', 'status', 'updated_at'])
+    return appointment
+
+
+@transaction.atomic
+def mark_visit(appointment, attended, user):
+    """Mark a visit as attended or missed."""
+    if appointment.kind != Appointment.Kind.VISIT:
+        raise ValidationError('Only visit appointments can be marked.')
+    if appointment.application.status != Application.Status.ENROLLED:
+        raise ValidationError('This visit cannot be marked yet.')
+    if appointment.status not in [Appointment.Status.PROPOSED, Appointment.Status.CONFIRMED]:
+        raise ValidationError('This visit cannot be marked yet.')
+    if appointment.scheduled_for is None or appointment.scheduled_for > timezone.now():
+        raise ValidationError('This visit cannot be marked yet.')
+
+    appointment.status = Appointment.Status.ATTENDED if attended else Appointment.Status.MISSED
+    appointment.save(update_fields=['status', 'updated_at'])
+    return appointment
+
+
+def earned_amount(application):
+    """Calculate compensation earned: compensation × attended_visits / total_visits."""
+    attended_count = application.appointments.filter(
+        kind=Appointment.Kind.VISIT,
+        status=Appointment.Status.ATTENDED,
+    ).count()
+    total_visits = application.study.total_visits
+    if total_visits == 0:
+        return Decimal('0.00')
+    earned = application.study.compensation_amount * Decimal(attended_count) / Decimal(total_visits)
+    return earned.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+
+def amount_due(application):
+    """Calculate amount due: earned_amount - (requested + paid), minimum 0."""
+    earned = earned_amount(application)
+    already_requested_or_paid = application.payouts.filter(
+        status__in=[Payout.Status.REQUESTED, Payout.Status.PAID]
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    due = earned - already_requested_or_paid
+    return max(due, Decimal('0.00')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+
+@transaction.atomic
+def request_payout(application, user):
+    """Create a payout request if amount is due."""
+    due = amount_due(application)
+    if due <= 0:
+        raise ValidationError('Nothing is due right now.')
+
+    attended_count = application.appointments.filter(
+        kind=Appointment.Kind.VISIT,
+        status=Appointment.Status.ATTENDED,
+    ).count()
+
+    payout = Payout.objects.create(
+        application=application,
+        amount=due,
+        visits_counted=attended_count,
+        status=Payout.Status.REQUESTED,
+        requested_by=user,
+    )
+    notify_staff(
+        f'Payout requested for {application.reference}: S${due:.2f}.',
+        '/panel/payouts/',
+    )
+    return payout
+
+
+@transaction.atomic
+def complete_participation(application, user):
+    """Mark application as completed if all visits are recorded."""
+    open_visits = application.appointments.filter(
+        kind=Appointment.Kind.VISIT,
+        status__in=[Appointment.Status.PROPOSED, Appointment.Status.CONFIRMED],
+    )
+    if open_visits.exists():
+        raise ValidationError('Record every visit as attended or missed first.')
+
+    change_status(
+        application,
+        Application.Status.COMPLETED,
+        actor=user,
+        actor_role=ApplicationStatusEvent.ActorRole.COORDINATOR,
+        note='Thank you for taking part',
+    )
+    return application
+
+
+@transaction.atomic
+def coordinator_withdraw(application, user, reason=''):
+    """Withdraw participant by coordinator, cancels open appointments."""
+    note = reason if reason else 'Withdrawn by the research team'
+    change_status(
+        application,
+        Application.Status.WITHDRAWN,
+        actor=user,
+        actor_role=ApplicationStatusEvent.ActorRole.COORDINATOR,
+        note=note,
+    )
+    application.appointments.filter(
+        status__in=[Appointment.Status.PROPOSED, Appointment.Status.CONFIRMED]
+    ).update(status=Appointment.Status.CANCELLED, updated_at=timezone.now())
+    refresh_capacity(application.study)
+    return application
+
+
+def study_funnel(applications_queryset):
+    """Return counts for each funnel stage."""
+    qs = applications_queryset
+    applied = qs.count()
+
+    passed_pre_screen = qs.exclude(
+        status=Application.Status.AUTO_DECLINED
+    ).count()
+
+    shortlisted = qs.filter(
+        status_events__to_status=Application.Status.SHORTLISTED
+    ).distinct().count()
+
+    screened = qs.exclude(screening_outcome='').count()
+    passed_screening = qs.filter(screening_outcome=Application.ScreeningOutcome.PASSED).count()
+
+    enrolled = qs.filter(
+        status_events__to_status=Application.Status.ENROLLED
+    ).distinct().count()
+
+    completed = qs.filter(
+        status=Application.Status.COMPLETED
+    ).count()
+
+    return {
+        'applied': applied,
+        'passed_pre_screen': passed_pre_screen,
+        'shortlisted': shortlisted,
+        'screened': screened,
+        'passed_screening': passed_screening,
+        'enrolled': enrolled,
+        'completed': completed,
+    }
+
+
+def band_pass_rates(qs):
+    """Return screening pass rates by ML-2 band."""
+    bands = ['high', 'medium', 'low', 'unscored']
+    result = {}
+    for band in bands:
+        band_qs = qs.filter(ml2_band=band)
+        outcomes = band_qs.exclude(screening_outcome='')
+        if outcomes.exists():
+            passed = outcomes.filter(
+                screening_outcome=Application.ScreeningOutcome.PASSED
+            ).count()
+            total = outcomes.count()
+            rate = (passed / total * 100) if total > 0 else 0
+            result[band] = {
+                'passed': passed,
+                'total': total,
+                'rate': f'{rate:.0f}%',
+            }
+        else:
+            result[band] = {
+                'passed': 0,
+                'total': 0,
+                'rate': 'No outcomes yet',
+            }
+    return result
+
+
+def band_distribution(qs):
+    """Return application counts by ML-2 band."""
+    return list(
+        qs.values('ml2_band').annotate(count=Count('id')).order_by('ml2_band')
+    )
+
+
+def applicant_mix(qs):
+    """Return age/sex/region counts for applied vs enrolled with insights consent."""
+    result = {
+        'age_bands': {},
+        'sex': {},
+        'regions': {},
+    }
+
+    for label in ['applied', 'enrolled']:
+        if label == 'applied':
+            filtered_qs = qs
+        else:
+            filtered_qs = qs.filter(status=Application.Status.ENROLLED)
+
+        filtered_qs = filtered_qs.filter(
+            participant__consent_insights=True
+        )
+
+        age_bands_raw = filtered_qs.values_list(
+            'participant__user__first_name',
+            'participant__date_of_birth',
+        )
+        age_band_counts = defaultdict(int)
+        for _, dob in age_bands_raw:
+            if dob:
+                age = age_band(
+                    (timezone.now().date() - dob).days // 365
+                )
+                age_band_counts[age] += 1
+
+        if label not in result['age_bands']:
+            result['age_bands'][label] = {}
+        result['age_bands'][label] = dict(age_band_counts)
+
+        sex_counts = filtered_qs.values('participant__sex').annotate(
+            count=Count('id')
+        ).order_by('participant__sex')
+        if label not in result['sex']:
+            result['sex'][label] = {}
+        result['sex'][label] = {
+            item['participant__sex']: item['count'] for item in sex_counts
+        }
+
+        region_counts = filtered_qs.values(
+            'participant__region__name'
+        ).annotate(count=Count('id')).order_by('participant__region__name')
+        if label not in result['regions']:
+            result['regions'][label] = {}
+        result['regions'][label] = {
+            item['participant__region__name']: item['count']
+            for item in region_counts if item['participant__region__name']
+        }
+
+    return result
+
+
+def coordinator_dashboard(user):
+    """Return dashboard data for coordinator's organisation."""
+    if not user.has_perm('core.panel_access'):
+        raise ValidationError('Access denied.')
+
+    org = getattr(user.staff_profile, 'organisation', None)
+    if not org:
+        return None
+
+    studies = Study.objects.filter(
+        organisation=org,
+        status__in=[Study.Status.PUBLISHED, Study.Status.PAUSED, Study.Status.FULL],
+    )
+
+    applications_qs = Application.objects.filter(study__in=studies)
+
+    high_priority = applications_qs.filter(
+        status=Application.Status.UNDER_REVIEW,
+        ml2_band=Application.Band.HIGH,
+    ).count()
+
+    awaiting_review = applications_qs.filter(
+        status=Application.Status.UNDER_REVIEW,
+    ).count()
+
+    screening_appointments = Appointment.objects.filter(
+        application__study__in=studies,
+        kind=Appointment.Kind.SCREENING,
+        status__in=[Appointment.Status.PROPOSED, Appointment.Status.CONFIRMED],
+        scheduled_for__gt=timezone.now(),
+        scheduled_for__lte=timezone.now() + timedelta(days=7),
+    ).count()
+
+    payouts_awaiting = Payout.objects.filter(
+        application__study__in=studies,
+        status=Payout.Status.REQUESTED,
+    ).count()
+
+    under_review_apps = applications_qs.filter(
+        status=Application.Status.UNDER_REVIEW,
+    ).order_by('-ml2_band', '-created_at', '-id')[:5]
+
+    screening_list = Appointment.objects.filter(
+        application__study__in=studies,
+        kind=Appointment.Kind.SCREENING,
+        status__in=[Appointment.Status.PROPOSED, Appointment.Status.CONFIRMED],
+        scheduled_for__gt=timezone.now(),
+        scheduled_for__lte=timezone.now() + timedelta(days=7),
+    ).order_by('scheduled_for').select_related(
+        'application__participant__user',
+        'application__study',
+        'site',
+    )[:7]
+
+    return {
+        'organisation': org,
+        'active_studies': studies.count(),
+        'high_priority': high_priority,
+        'awaiting_review': awaiting_review,
+        'screening_this_week': screening_appointments,
+        'payouts_awaiting': payouts_awaiting,
+        'under_review_apps': under_review_apps,
+        'screening_list': screening_list,
+    }

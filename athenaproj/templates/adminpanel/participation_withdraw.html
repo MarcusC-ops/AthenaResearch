@@ -1,0 +1,19 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block content %}
+<div class="mb-4">
+  <a href="{% url 'adminpanel:participation_detail' application.pk %}" class="text-decoration-none text-muted">&larr; Back</a>
+</div>
+
+<h1>Withdraw participant?</h1>
+<p class="text-muted mb-4">{{ application.participant.user.get_full_name }} from {{ application.study.title }}</p>
+
+<form method="post" class="mb-4">
+  {% csrf_token %}
+  {{ form }}
+  <div class="d-flex gap-2 mt-4">
+    <button type="submit" class="btn btn-danger rounded-pill">Confirm withdrawal</button>
+    <a href="{% url 'adminpanel:participation_detail' application.pk %}" class="btn btn-outline-dark rounded-pill">Cancel</a>
+  </div>
+</form>
+{% endblock %}

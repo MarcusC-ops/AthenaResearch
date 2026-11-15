@@ -1,0 +1,145 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block content %}
+<div class="mb-4">
+  <a href="{% url 'adminpanel:participation' %}" class="text-decoration-none text-muted">&larr; Back</a>
+</div>
+
+<h1>{{ application.participant.user.get_full_name }}</h1>
+<p class="text-muted mb-4">{{ application.study.title }} — <span class="badge rounded-pill bg-light text-dark">{{ application.get_status_display }}</span></p>
+
+<div class="row mb-4 g-3">
+  <div class="col-md-6">
+    <div class="card p-3">
+      <h6 class="card-title mb-3">Screening</h6>
+      {% if screening %}
+        <div class="mb-2">
+          <div class="text-muted small">Date and time</div>
+          <div>{{ screening.scheduled_for|date:"M d, H:i" }}</div>
+        </div>
+        <div class="mb-2">
+          <div class="text-muted small">Site</div>
+          <div>{{ screening.site.name }}</div>
+        </div>
+        <div>
+          <div class="text-muted small">Status</div>
+          <div><span class="badge rounded-pill bg-light text-dark">{{ screening.get_status_display }}</span></div>
+        </div>
+      {% else %}
+        <p class="text-muted mb-0">Not scheduled yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card p-3">
+      <h6 class="card-title mb-3">Compensation</h6>
+      <div class="mb-3">
+        <div class="text-uppercase small text-muted">Compensation due now</div>
+        <div class="display-5 fw-bold">S${{ due_now|floatformat:2 }}</div>
+      </div>
+      {% if due_now > 0 %}
+        <form method="post" class="mb-0">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="request_payout">
+          <button type="submit" class="btn btn-primary rounded-pill">Request payout</button>
+        </form>
+      {% else %}
+        <p class="text-muted mb-0">Nothing is due right now. Mark attended visits to build up the amount.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="card p-3 mb-4">
+  <h6 class="card-title mb-3">Visits</h6>
+  {% if visits %}
+    <table class="table table-sm mb-0">
+      <tbody>
+        {% for visit in visits %}
+          <tr class="align-middle">
+            <td class="fw-bold">Visit {{ visit.visit_number }}</td>
+            <td>
+              {% if visit.status == 'proposed' or visit.status == 'confirmed' %}
+                <form method="post" class="d-inline" style="display: inline-block; width: 100%;">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="save_date">
+                  <input type="hidden" name="appointment_id" value="{{ visit.pk }}">
+                  <div class="input-group input-group-sm">
+                    <input type="datetime-local" name="scheduled_for" value="{% if visit.scheduled_for %}{{ visit.scheduled_for|date:'Y-m-dTH:i' }}{% endif %}" class="form-control" required>
+                    <button type="submit" class="btn btn-outline-dark">Save date</button>
+                  </div>
+                </form>
+              {% else %}
+                <div class="text-muted">{{ visit.scheduled_for|date:"M d, H:i" }}</div>
+              {% endif %}
+            </td>
+            <td><span class="badge rounded-pill bg-light text-dark">{{ visit.get_status_display }}</span></td>
+            <td>
+              {% if visit.status == 'proposed' or visit.status == 'confirmed' %}
+                {% if visit.scheduled_for and visit.scheduled_for <= now %}
+                  <form method="post" class="d-inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="mark_attended">
+                    <input type="hidden" name="appointment_id" value="{{ visit.pk }}">
+                    <button type="submit" class="btn btn-sm btn-outline-success rounded-pill">Attended</button>
+                  </form>
+                  <form method="post" class="d-inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="mark_missed">
+                    <input type="hidden" name="appointment_id" value="{{ visit.pk }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill">Missed</button>
+                  </form>
+                {% endif %}
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="text-muted mb-0">No visits scheduled yet.</p>
+  {% endif %}
+</div>
+
+<div class="card p-3 mb-4">
+  <h6 class="card-title mb-3">Payouts</h6>
+  {% if payouts %}
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>Date</th>
+          <th>Reference</th>
+          <th>Note</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for payout in payouts %}
+          <tr>
+            <td>S${{ payout.amount|floatformat:2 }}</td>
+            <td><span class="badge rounded-pill bg-light text-dark">{{ payout.get_status_display }}</span></td>
+            <td>{% if payout.paid_at %}{{ payout.paid_at|date:"M d, Y" }}{% else %}—{% endif %}</td>
+            <td>{% if payout.reference %}{{ payout.reference }}{% else %}—{% endif %}</td>
+            <td>{% if payout.rejection_reason %}{{ payout.rejection_reason }}{% else %}—{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="text-muted mb-0">No payouts yet.</p>
+  {% endif %}
+</div>
+
+<div class="d-flex gap-2">
+  {% if application.status != 'completed' and application.status != 'withdrawn' %}
+    <form method="post" class="me-auto">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="complete">
+      <button type="submit" class="btn btn-primary rounded-pill">Mark as completed</button>
+    </form>
+    <a href="{% url 'adminpanel:participation_withdraw' application.pk %}" class="btn btn-outline-danger rounded-pill">Withdraw participant</a>
+  {% endif %}
+</div>
+{% endblock %}
