@@ -1,0 +1,23 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Edit question · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid form-narrow">
+  <h1>Edit question</h1>
+  <p><a href="{% url 'adminpanel:study_questions' study.pk %}">{{ study.title }}</a></p>
+  <section class="card p-4 mt-4">
+    <form method="post">
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="alert alert-danger">{% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}</div>{% endif %}
+      {% for field in form %}
+        {% include 'adminpanel/_form_field.html' with field=field %}
+      {% endfor %}
+      <div class="d-flex gap-2">
+        <button class="btn btn-primary" type="submit">Save question</button>
+        <a class="btn btn-outline-secondary" href="{% url 'adminpanel:study_questions' study.pk %}">Cancel</a>
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}

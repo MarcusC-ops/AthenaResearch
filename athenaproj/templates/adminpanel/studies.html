@@ -1,0 +1,48 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Study listings · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+    <h1 class="mb-0">Study listings</h1>
+    {% if user_role == 'coordinator' %}
+      <a class="btn btn-primary" href="{% url 'adminpanel:study_new' %}">New study</a>
+    {% endif %}
+  </div>
+  <nav class="study-status-tabs mb-4" aria-label="Study status">
+    {% for tab in tabs %}
+      <a class="badge text-decoration-none {% if tab.active %}text-bg-primary{% else %}text-bg-light{% endif %}"
+         href="{% if tab.value %}?status={{ tab.value }}{% else %}{% url 'adminpanel:study_list' %}{% endif %}">
+        {{ tab.label }} <span>{{ tab.count }}</span>
+      </a>
+    {% endfor %}
+  </nav>
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th>Study</th><th>Status</th>{% if show_organisation %}<th>Organisation</th>{% endif %}
+          <th>Category</th><th>Enrolled</th><th>Applications</th><th>Deadline</th><th>Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for study in studies %}
+          <tr>
+            <td><a href="{% url 'adminpanel:study_detail' study.pk %}">{{ study.title }}</a></td>
+            <td><span class="badge text-bg-light">{{ study.get_status_display }}</span></td>
+            {% if show_organisation %}<td>{{ study.organisation.name }}</td>{% endif %}
+            <td>{{ study.category.name }}</td>
+            <td>{{ study.panel_enrolled_count }} of {{ study.target_enrolment }}</td>
+            <td>{{ study.panel_application_count }}</td>
+            <td>{{ study.recruitment_deadline|date:"j M Y" }}</td>
+            <td>{{ study.updated_at|date:"j M Y" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="{% if show_organisation %}8{% else %}7{% endif %}" class="py-5 text-center">No studies here yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

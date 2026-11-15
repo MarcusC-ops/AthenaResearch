@@ -1,0 +1,26 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Compliance checklist · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid form-narrow">
+  <h1>Compliance checklist</h1>
+  <p>{{ study.title }}</p>
+  <section class="card p-4 mt-4">
+    <ul class="list-unstyled mb-0">
+      {% for check in checks %}
+        <li class="d-flex flex-wrap align-items-start gap-2 py-3 {% if not forloop.first %}border-top{% endif %}">
+          <span class="badge {% if check.passed %}text-bg-success{% else %}text-bg-danger{% endif %}">{% if check.passed %}Pass{% else %}Fail{% endif %}</span>
+          <span>{{ check.label }}</span>
+          {% if not check.passed %}<span class="text-muted">{{ check.detail }}</span>{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+  <form method="post" class="mt-4">
+    {% csrf_token %}
+    <button class="btn btn-primary" type="submit" {% if not all_pass %}disabled{% endif %}>Submit for review</button>
+  </form>
+  <p class="mt-4">Athena staff will review your listing. You will get a notification when it is approved or returned.</p>
+</div>
+{% endblock %}
