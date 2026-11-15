@@ -22,7 +22,7 @@
       <div class="text-decoration-none text-dark">
         <div class="text-muted small mb-2">New applications</div>
         <div class="display-5 fw-bold">{{ high_priority }}</div>
-        <div class="small text-muted">{{ high_priority }} priority</div>
+        <div class="small text-muted">High priority</div>
         <div class="small text-muted">{{ awaiting_review }} awaiting review</div>
       </div>
     </div>
@@ -30,10 +30,9 @@
 
   <div class="col-md-3">
     <div class="card p-3">
-      <a href="{% url 'adminpanel:participation' %}" class="text-decoration-none text-dark">
-        <div class="text-muted small mb-2">Screenings this week</div>
-        <div class="display-5 fw-bold">{{ screening_this_week }}</div>
-      </a>
+      <div class="text-muted small mb-2">Screenings this week</div>
+      <div class="display-5 fw-bold">{{ screening_this_week }}</div>
+      <div class="small text-muted">Listed below</div>
     </div>
   </div>
 
@@ -96,7 +95,7 @@
             {% for apt in screening_list %}
               <tr>
                 <td>{{ apt.scheduled_for|date:"j M Y, g:i A" }}</td>
-                <td><a href="{% url 'adminpanel:participation_detail' apt.application.pk %}" class="text-decoration-none">{{ apt.application.participant.user.get_full_name }}</a></td>
+                <td><a href="{% url 'adminpanel:application_detail' apt.application.pk %}" class="text-decoration-none">{{ apt.application.participant.user.get_full_name }}</a></td>
                 <td>{{ apt.application.study.title }}</td>
                 <td>{{ apt.site.name }}</td>
                 <td><span class="badge rounded-pill bg-light text-dark">{{ apt.get_status_display }}</span></td>

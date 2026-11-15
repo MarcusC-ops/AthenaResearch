@@ -81,7 +81,8 @@ class HomeAndFaqTests(TestCase):
         response = self.client.get('/')
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Be part of the next Health Discovery')
+        self.assertContains(response, 'Find research')
+        self.assertContains(response, 'fit your life.')
         self.assertContains(response, 'Explore by category')
 
     def test_02_category_tiles_count_public_studies_only(self):

@@ -13,9 +13,45 @@
     <div class="card p-4"><p>Complete your profile so we can show you studies you qualify for</p><a class="btn btn-primary" href="/onboarding/">Complete your profile</a></div>
   {% else %}
     <div class="row g-4">
-      <div class="col-lg-4"><div class="card p-4"><h2 class="h4">About you</h2><p>{{ profile.date_of_birth }}<br>{{ profile.get_sex_display }}<br>{{ profile.region.name }}<br>{{ profile.get_ethnicity_display }}<br>{{ profile.get_employment_display }}<br>{{ profile.get_education_display }}</p></div></div>
-      <div class="col-lg-4"><div class="card p-4"><h2 class="h4">Health basics</h2><p>Height: {{ profile.height_cm }} cm<br>Weight: {{ profile.weight_kg }} kg<br>BMI {{ profile.bmi }}<br>{{ profile.get_activity_level_display }}<br>Smoker: {% if profile.smoker %}Yes{% else %}No{% endif %}</p><p>Known health conditions:<br>{% for condition in profile.conditions.all %}{{ condition.name }}{% if not forloop.last %}, {% endif %}{% empty %}None{% endfor %}</p></div></div>
-      <div class="col-lg-4"><div class="card p-4"><h2 class="h4">Preferences and consents</h2><p>{{ profile.get_motivation_display }}<br>{{ profile.get_availability_display }}<br>{{ profile.get_max_travel_minutes_display }}</p><p>Matching: {% if profile.consent_matching %}Yes{% else %}No{% endif %}<br>Insights: {% if profile.consent_insights %}Yes{% else %}No{% endif %}<br>Contact: {% if profile.consent_contact %}Yes{% else %}No{% endif %}</p></div></div>
+      <div class="col-lg-4">
+        <div class="card p-4 h-100">
+          <h2 class="h4">About you</h2>
+          <dl class="profile-facts mb-0">
+            <dt>Date of birth</dt><dd>{{ profile.date_of_birth|date:"j M Y"|default:'Not given' }}</dd>
+            <dt>Sex</dt><dd>{{ profile.get_sex_display|default:'Not given' }}</dd>
+            <dt>Region</dt><dd>{{ profile.region.name|default:'Not given' }}</dd>
+            <dt>Ethnicity</dt><dd>{{ profile.get_ethnicity_display|default:'Not given' }}</dd>
+            <dt>Employment</dt><dd>{{ profile.get_employment_display|default:'Not given' }}</dd>
+            <dt>Education</dt><dd>{{ profile.get_education_display|default:'Not given' }}</dd>
+          </dl>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="card p-4 h-100">
+          <h2 class="h4">Health basics</h2>
+          <dl class="profile-facts mb-0">
+            <dt>Height</dt><dd>{% if profile.height_cm %}{{ profile.height_cm }} cm{% else %}Not given{% endif %}</dd>
+            <dt>Weight</dt><dd>{% if profile.weight_kg %}{{ profile.weight_kg }} kg{% else %}Not given{% endif %}</dd>
+            <dt>BMI</dt><dd>{{ profile.bmi|default:'Not available' }}</dd>
+            <dt>Activity level</dt><dd>{{ profile.get_activity_level_display|default:'Not given' }}</dd>
+            <dt>Smoker</dt><dd>{% if profile.smoker %}Yes{% else %}No{% endif %}</dd>
+            <dt>Known health conditions</dt><dd>{% for condition in profile.conditions.all %}{{ condition.name }}{% if not forloop.last %}, {% endif %}{% empty %}None{% endfor %}</dd>
+          </dl>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="card p-4 h-100">
+          <h2 class="h4">Preferences and consents</h2>
+          <dl class="profile-facts mb-0">
+            <dt>Main reason for joining</dt><dd>{{ profile.get_motivation_display|default:'Not given' }}</dd>
+            <dt>Usually free</dt><dd>{{ profile.get_availability_display|default:'Not given' }}</dd>
+            <dt>Willing to travel</dt><dd>{{ profile.get_max_travel_minutes_display|default:'Not given' }}</dd>
+            <dt>Study matching</dt><dd>{% if profile.consent_matching %}Yes{% else %}No{% endif %}</dd>
+            <dt>Anonymised insights</dt><dd>{% if profile.consent_insights %}Yes{% else %}No{% endif %}</dd>
+            <dt>Contact about studies</dt><dd>{% if profile.consent_contact %}Yes{% else %}No{% endif %}</dd>
+          </dl>
+        </div>
+      </div>
     </div>
   {% endif %}
 </div>

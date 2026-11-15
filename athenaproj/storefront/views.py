@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from core.models import Appointment, Application, Review, Study
+from core.redirects import safe_next_url
 from core.services import (
     OPEN_STATUSES,
     PARTICIPANT_STATUS_LABELS,
@@ -135,10 +136,14 @@ def study_detail(request, slug):
 
 
 def _safe_next(request, fallback):
-    next_url = request.POST.get('next', '')
-    if next_url.startswith('/') and not next_url.startswith('//'):
-        return next_url
-    return fallback
+    return safe_next_url(request, request.POST.get('next', ''), fallback)
+
+
+def _public_study_or_404(slug):
+    try:
+        return get_public_study(slug)
+    except Study.DoesNotExist:
+        raise Http404
 
 
 def _apply_session_key(study_id):
@@ -157,6 +162,13 @@ def _redirect_if_application_exists(request, study):
     return None
 
 
+def _availability_label(value):
+    try:
+        return Application.Availability(value).label
+    except ValueError:
+        return ''
+
+
 def _require_profile_ready(request):
     profile = request.user.participant_profile
     if not profile_ready(profile):
@@ -167,7 +179,7 @@ def _require_profile_ready(request):
 
 @participant_required
 def apply_step1(request, slug):
-    study = get_public_study(slug)
+    study = _public_study_or_404(slug)
     existing = _redirect_if_application_exists(request, study)
     if existing:
         return existing
@@ -202,7 +214,7 @@ def apply_step1(request, slug):
 
 @participant_required
 def apply_step2(request, slug):
-    study = get_public_study(slug)
+    study = _public_study_or_404(slug)
     existing = _redirect_if_application_exists(request, study)
     if existing:
         return existing
@@ -246,7 +258,7 @@ def apply_step2(request, slug):
 
 @participant_required
 def apply_step3(request, slug):
-    study = get_public_study(slug)
+    study = _public_study_or_404(slug)
     existing = _redirect_if_application_exists(request, study)
     if existing:
         return existing
@@ -289,8 +301,8 @@ def apply_step3(request, slug):
                     'study': study,
                     'answers': question_answers,
                     'preferred_site': preferred_site,
-                    'availability': session_data.get('availability'),
-                    'error_message': str(exc),
+                    'availability': _availability_label(session_data.get('availability')),
+                    'error_message': ' '.join(exc.messages),
                 },
             )
         except NotEligible:
@@ -308,7 +320,7 @@ def apply_step3(request, slug):
             'study': study,
             'answers': question_answers,
             'preferred_site': preferred_site,
-            'availability': session_data.get('availability'),
+            'availability': _availability_label(session_data.get('availability')),
         },
     )
 

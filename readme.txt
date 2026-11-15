@@ -16,7 +16,7 @@ From the workspace root:
     cd athenaproj
     ../.venv/bin/python manage.py migrate
     ../.venv/bin/python manage.py seed_demo
-    ../.venv/bin/python manage.py runserver
+    ATHENA_DEBUG=true ../.venv/bin/python manage.py runserver
 
 Setup on Windows
 ----------------
@@ -28,10 +28,15 @@ From the workspace root in PowerShell:
     cd athenaproj
     ..\.venv\Scripts\python manage.py migrate
     ..\.venv\Scripts\python manage.py seed_demo
+    $env:ATHENA_DEBUG = "true"
     ..\.venv\Scripts\python manage.py runserver
 
 Open the storefront at http://127.0.0.1:8000/ and the panel at
 http://127.0.0.1:8000/panel/.
+
+ATHENA_DEBUG=true turns on Django's development mode, which is what lets
+runserver serve the stylesheet and images. Without it the pages load with no
+styling.
 
 Demo accounts
 -------------
