@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="container-fluid">
-  <h1 class="mb-4">Moderation</h1>
+  <h1 class="panel-page-title">Moderation</h1>
   <nav class="study-status-tabs mb-4" aria-label="Moderation status">
     {% for tab in tabs %}<a class="badge {% if tab.active %}text-bg-primary{% else %}text-bg-light text-dark{% endif %} text-decoration-none" href="?status={{ tab.value }}">{{ tab.label }} · {{ tab.count }}</a>{% endfor %}
   </nav>

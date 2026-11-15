@@ -9,14 +9,14 @@
   </div>
   <div class="row g-4">
     <aside class="col-lg-3">
-      <form method="get" class="card p-3">
+      <form method="get" class="card p-3 study-filters">
         <label class="form-label" for="q">Keyword</label>
         {{ form.q }}
         <label class="form-label mt-3" for="category">Category</label>{{ form.category }}
-        <fieldset class="mt-3"><legend class="form-label">Study type</legend>{{ form.type }}</fieldset>
+        <fieldset class="mt-3"><legend class="form-label fs-6">Study type</legend>{{ form.type }}</fieldset>
         <label class="form-label mt-3" for="region">Region</label>{{ form.region }}
         <label class="form-label mt-3" for="duration">Duration</label>{{ form.duration }}
-        <div class="form-check mt-3">{{ form.hv }}<label class="form-check-label" for="id_hv">Healthy volunteers welcome</label></div>
+        <div class="form-check study-filter-healthy mt-3">{{ form.hv }}<label class="form-check-label" for="id_hv">Healthy Volunteers</label></div>
         <label class="form-label mt-3" for="comp">Compensation</label>{{ form.comp }}
         <label class="form-label mt-3" for="sort">Sort</label>{{ form.sort }}
         <button class="btn btn-primary mt-3 w-100" type="submit">Apply filters</button>

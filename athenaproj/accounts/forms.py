@@ -28,6 +28,17 @@ class RegistrationForm(forms.Form):
         label='I accept the Terms of use and Privacy policy'
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            if isinstance(field.widget, forms.CheckboxInput):
+                css_class = 'form-check-input'
+            elif isinstance(field.widget, forms.Select):
+                css_class = 'form-select'
+            else:
+                css_class = 'form-control'
+            field.widget.attrs['class'] = css_class
+
     def clean_email(self):
         email = self.cleaned_data['email'].lower()
         if User.objects.filter(username=email).exists():

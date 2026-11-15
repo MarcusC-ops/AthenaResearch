@@ -2,11 +2,11 @@
 {% load athena_filters %}
 
 {% block content %}
-<h1>Study insights</h1>
+<h1>Study Insights</h1>
 
 <form method="get" class="mb-4 d-flex gap-2 align-items-end">
   <div class="flex-grow-1">
-    <label for="id_study" class="form-label">Study</label>
+    <label for="id_study" class="visually-hidden">Study</label>
     <select name="study_id" id="id_study" class="form-select">
       <option value="">All our studies</option>
       {% for study in studies %}
@@ -36,42 +36,42 @@
                 <td>Passed pre-screen</td>
                 <td class="text-end fw-bold">{{ funnel.passed_pre_screen }}</td>
                 <td>
-                  <div style="width: {% widthratio funnel.passed_pre_screen funnel.applied 100 %}%; height: 20px; background-color: #1A12E0; border-radius: 4px;"></div>
+                  <div style="width: {% widthratio funnel.passed_pre_screen funnel.applied 100 %}%; height: 20px; background-color: #6B7280; border-radius: 4px;"></div>
                 </td>
               </tr>
               <tr>
                 <td>Shortlisted</td>
                 <td class="text-end fw-bold">{{ funnel.shortlisted }}</td>
                 <td>
-                  <div style="width: {% widthratio funnel.shortlisted funnel.applied 100 %}%; height: 20px; background-color: #1A12E0; border-radius: 4px;"></div>
+                  <div style="width: {% widthratio funnel.shortlisted funnel.applied 100 %}%; height: 20px; background-color: #6B7280; border-radius: 4px;"></div>
                 </td>
               </tr>
               <tr>
                 <td>Screened</td>
                 <td class="text-end fw-bold">{{ funnel.screened }}</td>
                 <td>
-                  <div style="width: {% widthratio funnel.screened funnel.applied 100 %}%; height: 20px; background-color: #1A12E0; border-radius: 4px;"></div>
+                  <div style="width: {% widthratio funnel.screened funnel.applied 100 %}%; height: 20px; background-color: #6B7280; border-radius: 4px;"></div>
                 </td>
               </tr>
               <tr>
                 <td>Passed screening</td>
                 <td class="text-end fw-bold">{{ funnel.passed_screening }}</td>
                 <td>
-                  <div style="width: {% widthratio funnel.passed_screening funnel.applied 100 %}%; height: 20px; background-color: #1A12E0; border-radius: 4px;"></div>
+                  <div style="width: {% widthratio funnel.passed_screening funnel.applied 100 %}%; height: 20px; background-color: #6B7280; border-radius: 4px;"></div>
                 </td>
               </tr>
               <tr>
                 <td>Enrolled</td>
                 <td class="text-end fw-bold">{{ funnel.enrolled }}</td>
                 <td>
-                  <div style="width: {% widthratio funnel.enrolled funnel.applied 100 %}%; height: 20px; background-color: #1A12E0; border-radius: 4px;"></div>
+                  <div style="width: {% widthratio funnel.enrolled funnel.applied 100 %}%; height: 20px; background-color: #6B7280; border-radius: 4px;"></div>
                 </td>
               </tr>
               <tr>
                 <td>Completed</td>
                 <td class="text-end fw-bold">{{ funnel.completed }}</td>
                 <td>
-                  <div style="width: {% widthratio funnel.completed funnel.applied 100 %}%; height: 20px; background-color: #1A12E0; border-radius: 4px;"></div>
+                  <div style="width: {% widthratio funnel.completed funnel.applied 100 %}%; height: 20px; background-color: #6B7280; border-radius: 4px;"></div>
                 </td>
               </tr>
             {% endwith %}

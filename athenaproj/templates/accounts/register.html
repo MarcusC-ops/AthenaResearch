@@ -1,22 +1,36 @@
 {% extends 'storefront/base_storefront.html' %}
 {% block title %}Create your account{% endblock %}
 {% block content %}
-<div class="container py-5 form-narrow">
-  <h1>Create your account</h1>
-  <div class="d-flex gap-2 my-4">
+<div class="container py-5 form-narrow registration-page">
+  <h1 class="text-center">Create your account</h1>
+  <p class="text-center text-muted mb-3">{% if audience == 'participant' %}Find research studies that fit your life.{% else %}For research teams listing studies on Athena.{% endif %}</p>
+  <div class="d-flex justify-content-center gap-2 my-4">
     <a class="btn {% if audience == 'participant' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="?as=participant">Participant</a>
     <a class="btn {% if audience == 'researcher' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="?as=researcher">Researcher</a>
   </div>
-  <p>{% if audience == 'participant' %}Find research studies that fit your life.{% else %}For research teams listing studies on Athena.{% endif %}</p>
-  <form method="post" novalidate>{% csrf_token %}
-    {% for field in form %}
-      <div class="mb-3">
-        <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
-        {{ field }}
-        {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+  <form method="post" novalidate class="card registration-card">{% csrf_token %}
+    <div class="row g-3">
+      {% for field in form %}
+        {% if field.name == 'terms_accepted' %}
+          <div class="col-12">
+            <div class="form-check">
+              {{ field }}
+              <label class="form-check-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            </div>
+            {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+          </div>
+        {% else %}
+          <div class="{% if field.name == 'first_name' or field.name == 'last_name' or field.name == 'organisation' or field.name == 'job_title' %}col-md-6{% else %}col-12{% endif %}">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}</label>
+            {{ field }}
+            {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+          </div>
+        {% endif %}
+      {% endfor %}
+      <div class="col-12">
+        <button class="btn btn-primary w-100" type="submit">Create account</button>
       </div>
-    {% endfor %}
-    <button class="btn btn-primary" type="submit">Create account</button>
+    </div>
   </form>
 </div>
 {% endblock %}

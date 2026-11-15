@@ -1,7 +1,7 @@
 {% load athena_format %}
 <article class="card h-100 p-3 d-flex flex-column">
-  <div><span class="badge text-bg-light">{{ study.category.name }}</span></div>
-  <h3 class="h5 mt-3"><a href="{% url 'storefront:study_detail' study.slug %}" class="text-decoration-none">{{ study.title }}</a></h3>
+  <div><span class="badge category-chip">{{ study.category.name }}</span></div>
+  <h3 class="h5 mt-3"><a href="{% url 'storefront:study_detail' study.slug %}" class="text-decoration-none text-dark">{{ study.title }}</a></h3>
   <p>{{ study.description|truncatechars:120 }}</p>
   {% if reasons %}
     <ul class="small ps-3 mb-3">

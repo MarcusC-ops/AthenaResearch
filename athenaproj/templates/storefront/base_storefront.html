@@ -4,22 +4,22 @@
   <header class="container py-3">
     <div class="d-flex justify-content-between align-items-center">
       <a href="{% url 'storefront:home' %}" class="wordmark text-decoration-none text-dark">Athena</a>
-      <nav class="d-flex gap-3">
-        <a href="{% url 'storefront:studies' %}" class="text-decoration-none text-primary">Studies</a>
+      <nav class="storefront-header d-flex gap-3">
+        <a href="{% url 'storefront:studies' %}" class="text-decoration-none text-dark">Studies</a>
         {% if user.is_authenticated and user.participant_profile %}
-          <a href="{% url 'storefront:for_you' %}" class="text-decoration-none text-primary">For you</a>
-          <a href="{% url 'storefront:applications' %}" class="text-decoration-none text-primary">My applications</a>
-          <a href="{% url 'storefront:shortlist' %}" class="text-decoration-none text-primary">Shortlist ({{ shortlist_count }})</a>
+          <a href="{% url 'storefront:for_you' %}" class="text-decoration-none text-dark">For you</a>
+          <a href="{% url 'storefront:applications' %}" class="text-decoration-none text-dark">My applications</a>
+          <a href="{% url 'storefront:shortlist' %}" class="text-decoration-none text-dark">Shortlist ({{ shortlist_count }})</a>
           <div class="dropdown">
-            <a class="dropdown-toggle text-decoration-none text-primary" href="#" data-bs-toggle="dropdown">{{ user.first_name }}</a>
+            <a class="dropdown-toggle text-decoration-none text-dark" href="#" data-bs-toggle="dropdown">{{ user.first_name }}</a>
             <ul class="dropdown-menu">
               <li><a class="dropdown-item" href="/account/">Profile</a></li>
               <li><form method="post" action="/accounts/logout/">{% csrf_token %}<button class="dropdown-item" type="submit">Sign out</button></form></li>
             </ul>
           </div>
         {% else %}
-          <a href="/accounts/login/" class="text-decoration-none text-primary">Sign in</a>
-          <a href="/accounts/register/" class="text-decoration-none text-primary">Join Athena</a>
+          <a href="/accounts/login/" class="text-decoration-none text-dark">Sign in</a>
+          <a href="/accounts/register/" class="text-decoration-none text-dark">Join Athena</a>
         {% endif %}
       </nav>
     </div>
@@ -29,13 +29,14 @@
     {% block content %}{% endblock %}
   </main>
 
-  <footer class="text-center py-5">
-    <div class="wordmark display-6">Athena</div>
-    <p class="mt-3 mb-2">Find research studies that fit your life</p>
-    <div class="d-flex justify-content-center gap-3">
-      <a href="{% url 'storefront:studies' %}" class="text-decoration-none text-primary">Studies</a>
-      <a href="{% url 'storefront:support' %}" class="text-decoration-none text-primary">FAQ</a>
-      <a href="/accounts/register/?as=researcher" class="text-decoration-none text-primary">For research teams</a>
+  <footer class="container py-5">
+    <div class="d-flex justify-content-between align-items-end flex-wrap gap-3">
+      <a href="{% url 'storefront:home' %}" class="wordmark footer-wordmark text-decoration-none text-dark">Athena</a>
+      <nav class="d-flex flex-wrap gap-3" aria-label="Footer">
+        <a href="{% url 'storefront:studies' %}" class="text-decoration-none text-dark">Studies</a>
+        <a href="{% url 'storefront:support' %}" class="text-decoration-none text-dark">FAQ</a>
+        <a href="/accounts/register/?as=researcher" class="text-decoration-none text-dark">For research teams</a>
+      </nav>
     </div>
   </footer>
 {% endblock %}
