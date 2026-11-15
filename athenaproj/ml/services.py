@@ -1,12 +1,14 @@
 """The only module that loads model files and makes predictions."""
 
 import json
+from datetime import timedelta
 
 import pandas as pd
 from django.conf import settings
+from django.utils import timezone
 import joblib
 
-from core.models import Appointment, Application, PredictionLog
+from core.models import Appointment, Application, ParticipantProfile, PredictionLog
 
 
 MODEL_DIR = settings.BASE_DIR / 'ml' / 'models'
@@ -17,6 +19,39 @@ RAW_FEATURES = [
     'flag_skin', 'motivation', 'availability', 'max_travel_minutes',
 ]
 CONDITION_FLAGS = RAW_FEATURES[8:15]
+
+
+def read_meta(name):
+    """Read a model metadata file without exposing model-file access to views."""
+    with (MODEL_DIR / f'{name}_meta.json').open(encoding='utf-8') as file:
+        return json.load(file)
+
+
+def model_card(name):
+    """Return model metadata and whether its model and metadata files are usable."""
+    file_name = {
+        'ml1': 'ml1_interest',
+        'ml2': 'ml2_screening',
+    }.get(name, name)
+    try:
+        metadata = read_meta(file_name)
+    except (OSError, ValueError, TypeError):
+        metadata = {}
+    health = model_health()
+    key = 'ml1' if file_name.startswith('ml1') else 'ml2'
+    return {**metadata, 'name': name, 'loaded': health[key]}
+
+
+def prediction_stats(model_name, days=30):
+    cutoff = timezone.now() - timedelta(days=days)
+    predictions = PredictionLog.objects.filter(
+        model_name=model_name,
+        created_at__gte=cutoff,
+    )
+    return {
+        'count': predictions.count(),
+        'failures': predictions.filter(succeeded=False).count(),
+    }
 
 
 def build_ml1_features(profile):

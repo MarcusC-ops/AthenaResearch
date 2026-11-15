@@ -1723,6 +1723,97 @@ def get_settings():
     return settings
 
 
+@transaction.atomic
+def update_thresholds(high, medium, user):
+    settings = get_settings()
+    settings.ml2_high_threshold = high
+    settings.ml2_medium_threshold = medium
+    settings.updated_by = user
+    settings.save(update_fields=[
+        'ml2_high_threshold',
+        'ml2_medium_threshold',
+        'updated_by',
+        'updated_at',
+    ])
+    return settings
+
+
+def override_rate():
+    scored = Application.objects.exclude(ml2_band=Application.Band.UNSCORED)
+    scored_count = scored.count()
+    overridden = scored.filter(band_overridden=True).count()
+    percentage = (overridden / scored_count * 100) if scored_count else 0
+    return overridden, scored_count, percentage
+
+
+def ml1_first_pick_counts():
+    counts = defaultdict(int)
+    profiles = ParticipantProfile.objects.filter(
+        consent_matching=True,
+    ).only('ml1_categories')
+    for profile in profiles:
+        if profile.ml1_categories:
+            counts[profile.ml1_categories[0]] += 1
+    return dict(counts)
+
+
+@transaction.atomic
+def set_staff_role(target, role, acting_admin):
+    if role not in ('staff', 'admin'):
+        raise ValidationError('Role must be staff or admin.')
+    if role == 'staff' and target.is_active and target.groups.filter(
+        name='Admin'
+    ).exists() and User.objects.filter(
+        is_active=True, groups__name='Admin'
+    ).exclude(pk=target.pk).distinct().count() == 0:
+        raise ValidationError('There must always be at least one active admin.')
+    target.groups.remove(Group.objects.get(name='Staff'))
+    target.groups.remove(Group.objects.get(name='Admin'))
+    target.groups.add(Group.objects.get(name=role.title()))
+    return target
+
+
+@transaction.atomic
+def set_staff_active(target, active, acting_admin):
+    if not active and target.pk == acting_admin.pk:
+        raise ValidationError('You cannot switch off your own account.')
+    if not active and target.is_active and target.groups.filter(
+        name='Admin'
+    ).exists() and User.objects.filter(
+        is_active=True, groups__name='Admin'
+    ).exclude(pk=target.pk).distinct().count() == 0:
+        raise ValidationError('There must always be at least one active admin.')
+    target.is_active = active
+    target.save(update_fields=['is_active'])
+    return target
+
+
+@transaction.atomic
+def add_staff_account(form, acting_admin):
+    data = form.cleaned_data
+    email = data['email'].strip().lower()
+    if User.objects.filter(username=email).exists():
+        raise ValidationError('An account with this email already exists.')
+    user = User(
+        username=email,
+        email=email,
+        first_name=data['first_name'],
+        last_name=data['last_name'],
+        is_active=True,
+    )
+    validate_password(data['temporary_password'], user=user)
+    user.set_password(data['temporary_password'])
+    user.save()
+    user.groups.add(Group.objects.get(name=data['role'].title()))
+    StaffProfile.objects.create(
+        user=user,
+        organisation=None,
+        job_title=data['job_title'],
+        mobile=normalise_sg_mobile(data['mobile']),
+    )
+    return user
+
+
 def band_for(probability, settings):
     if probability is None:
         return Application.Band.UNSCORED

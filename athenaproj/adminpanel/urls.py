@@ -148,4 +148,13 @@ urlpatterns = [
     path('reviews/<int:review_id>/reject/', views.review_reject, name='review_reject'),
     path('support/', views.support, name='support'),
     path('support/<int:support_id>/', views.support_detail, name='support_detail'),
+    path('ml/', views.ml_monitor, name='ml_monitor'),
+    path('ml/settings/', views.ml_settings, name='ml_settings'),
+    path('staff/', views.staff_accounts, name='staff_accounts'),
+    path(
+        'staff/<int:user_id>/<str:action>/',
+        views.staff_account_action,
+        name='staff_account_action',
+    ),
+    path('demo-data/', views.demo_data, name='demo_data'),
 ]

@@ -1,7 +1,11 @@
+from io import StringIO
+
 from django.contrib import messages
 from django.contrib.auth import login
+from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import LogoutView
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponseBadRequest, HttpResponseNotAllowed
 from django.core.paginator import Paginator
@@ -12,6 +16,7 @@ from django.views.decorators.http import require_http_methods
 from core.models import (
     Application, Appointment, Condition, Organisation, ParticipantProfile,
     Payout, Site, Study, StudyCategory, SupportRequest, Review,
+    PredictionLog,
 )
 from core.services import (
     InvalidStatusMove,
@@ -39,6 +44,9 @@ from core.services import (
     get_panel_application,
     get_panel_study,
     get_settings,
+    ml1_first_pick_counts,
+    override_rate,
+    add_staff_account,
     identity_unlocked,
     list_notifications,
     mark_not_selected,
@@ -63,9 +71,12 @@ from core.services import (
     save_taxonomy_form,
     search_participants,
     set_coordinator_active,
+    set_staff_active,
+    set_staff_role,
     set_organisation_active,
     set_record_active,
     update_organisation,
+    update_thresholds,
     update_study_as_staff,
     return_study,
     unpublish_study,
@@ -83,6 +94,7 @@ from core.services import (
 )
 
 from .decorators import (
+    admin_required,
     coordinator_required,
     panel_staff_or_coordinator_required,
     staff_required,
@@ -108,7 +120,10 @@ from .forms import (
     SiteForm,
     StudyForm,
     VisitDateForm,
+    ThresholdForm,
+    StaffAccountForm,
 )
+from ml.services import model_card, prediction_stats
 
 
 def dashboard(request):
@@ -1573,3 +1588,156 @@ def taxonomy_delete(request, kind, record_id):
         'cancel_url': '/panel/taxonomy/',
         'button_text': f'Delete {kind}',
     })
+
+
+def _model_monitor_card(name, title):
+    card = model_card(name)
+    card['title'] = title
+    card['stats'] = prediction_stats(card.get('model_name', name))
+    return card
+
+
+@staff_required
+def ml_monitor(request):
+    ml1 = _model_monitor_card('ml1_interest', 'ML-1 Interest')
+    ml2 = _model_monitor_card('ml2_screening', 'ML-2 Screening')
+    first_picks = ml1_first_pick_counts()
+    categories = {
+        category.ml_label: category.name
+        for category in StudyCategory.objects.all()
+    }
+    ml1_picks = [
+        {'name': categories.get(label, label), 'count': count}
+        for label, count in sorted(
+            first_picks.items(), key=lambda item: (-item[1], item[0])
+        )
+    ]
+    max_pick = max((item['count'] for item in ml1_picks), default=0)
+    for item in ml1_picks:
+        item['width'] = item['count'] / max_pick * 100 if max_pick else 0
+
+    band_counts = {
+        band: Application.objects.filter(ml2_band=band).count()
+        for band in ('high', 'medium', 'low', 'unscored')
+    }
+    max_band = max(band_counts.values(), default=0)
+    bands = [
+        {
+            'name': Application.Band(band).label,
+            'value': band,
+            'count': count,
+            'width': count / max_band * 100 if max_band else 0,
+        }
+        for band, count in band_counts.items()
+    ]
+    overridden, scored, override_percentage = override_rate()
+    settings = get_settings()
+    recent_predictions = PredictionLog.objects.select_related(
+        'participant', 'application'
+    ).order_by('-created_at', '-id')[:20]
+    return render(request, 'adminpanel/ml_monitor.html', {
+        'ml1': ml1,
+        'ml2': ml2,
+        'model_cards': [ml1, ml2],
+        'ml1_picks': ml1_picks,
+        'bands': bands,
+        'override_count': overridden,
+        'scored_count': scored,
+        'override_percentage': override_percentage,
+        'pass_rates': band_pass_rates(Application.objects.all()),
+        'settings': settings,
+        'recent_predictions': recent_predictions,
+    })
+
+
+@admin_required
+@require_http_methods(['GET', 'POST'])
+def ml_settings(request):
+    settings = get_settings()
+    form = ThresholdForm(
+        request.POST or None,
+        initial={
+            'high': settings.ml2_high_threshold,
+            'medium': settings.ml2_medium_threshold,
+        },
+    )
+    if request.method == 'POST' and form.is_valid():
+        try:
+            update_thresholds(
+                form.cleaned_data['high'],
+                form.cleaned_data['medium'],
+                request.user,
+            )
+        except ValidationError as error:
+            form.add_error(None, error)
+        else:
+            messages.success(request, 'Thresholds saved.')
+            return redirect('adminpanel:ml_monitor')
+    return render(request, 'adminpanel/ml_settings.html', {
+        'form': form,
+        'settings': settings,
+    })
+
+
+@admin_required
+@require_http_methods(['GET', 'POST'])
+def staff_accounts(request):
+    users = User.objects.filter(
+        groups__name__in=['Staff', 'Admin'],
+    ).distinct().select_related('staff_profile').order_by(
+        'first_name', 'last_name', 'username'
+    )
+    form = StaffAccountForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        try:
+            add_staff_account(form, request.user)
+        except ValidationError as error:
+            form.add_error(None, error)
+        else:
+            messages.success(request, 'Staff account created.')
+            return redirect('adminpanel:staff_accounts')
+    return render(request, 'adminpanel/staff_accounts.html', {
+        'staff_users': users,
+        'form': form,
+    })
+
+
+@admin_required
+@require_http_methods(['POST'])
+def staff_account_action(request, user_id, action):
+    target = get_object_or_404(
+        User.objects.filter(groups__name__in=['Staff', 'Admin']).distinct(),
+        pk=user_id,
+    )
+    try:
+        if action in ('admin', 'staff'):
+            set_staff_role(target, action, request.user)
+            message = 'Account is now an admin.' if action == 'admin' else 'Account is now staff.'
+        elif action in ('on', 'off'):
+            set_staff_active(target, action == 'on', request.user)
+            message = 'Account switched on.' if action == 'on' else 'Account switched off.'
+        else:
+            raise Http404
+    except ValidationError as error:
+        messages.error(request, error.messages[0])
+    else:
+        messages.success(request, message)
+    return redirect('adminpanel:staff_accounts')
+
+
+@admin_required
+@require_http_methods(['GET', 'POST'])
+def demo_data(request):
+    output = request.session.pop('demo_seed_output', '')
+    if request.method == 'POST':
+        buffer = StringIO()
+        call_command('seed_demo', stdout=buffer)
+        login(
+            request,
+            User.objects.get(pk=request.user.pk),
+            backend='django.contrib.auth.backends.ModelBackend',
+        )
+        request.session['demo_seed_output'] = buffer.getvalue()
+        messages.success(request, 'Demo data loaded.')
+        return redirect('adminpanel:demo_data')
+    return render(request, 'adminpanel/demo_data.html', {'output': output})

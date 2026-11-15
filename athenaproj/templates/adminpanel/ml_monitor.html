@@ -1,0 +1,67 @@
+{% extends 'adminpanel/base_panel.html' %}
+{% load athena_filters %}
+{% block content %}
+<h1>ML monitor</h1>
+<p class="text-muted">Both models are versioned, logged and watched by people. ML-2 never declines anyone; coordinators can override any band.</p>
+
+<div class="row g-3 mb-4">
+  {% for card in model_cards %}
+  <div class="col-lg-6">
+    <div class="card p-3 h-100">
+      <div class="d-flex justify-content-between align-items-center">
+        <h2 class="h5 mb-0">{{ card.title }}</h2>
+        <span class="badge {% if card.loaded %}bg-success{% else %}bg-danger{% endif %}">{% if card.loaded %}Loaded{% else %}Not loaded{% endif %}</span>
+      </div>
+      <dl class="row mt-3 mb-0">
+        <dt class="col-sm-5">Version</dt><dd class="col-sm-7">{{ card.version|default:'Not available' }}</dd>
+        <dt class="col-sm-5">Trained</dt><dd class="col-sm-7">{{ card.trained_at|default:'Not available' }}</dd>
+        <dt class="col-sm-5">Algorithm</dt><dd class="col-sm-7">{{ card.algorithm|default:'Not available' }}</dd>
+        <dt class="col-sm-5">Training rows</dt><dd class="col-sm-7">{{ card.n_train|default:'0' }}</dd>
+        <dt class="col-sm-5">Test rows</dt><dd class="col-sm-7">{{ card.n_test|default:'0' }}</dd>
+        {% if card.name == 'ml1_interest' %}
+          <dt class="col-sm-5">Test accuracy</dt><dd class="col-sm-7">{{ card.metrics.test_accuracy|floatformat:2 }}</dd>
+          <dt class="col-sm-5">Train accuracy</dt><dd class="col-sm-7">{{ card.metrics.train_accuracy|floatformat:2 }}</dd>
+          <dt class="col-sm-5">Baseline tree</dt><dd class="col-sm-7">{{ card.metrics.baseline_tree_accuracy|floatformat:2 }}</dd>
+          <dt class="col-sm-5">Chance</dt><dd class="col-sm-7">{{ card.metrics.chance_accuracy|floatformat:2 }}</dd>
+          <dt class="col-sm-5">Macro F1</dt><dd class="col-sm-7">{{ card.metrics.macro_f1|floatformat:2 }}</dd>
+        {% else %}
+          <dt class="col-sm-5">Test accuracy</dt><dd class="col-sm-7">{{ card.metrics.test_accuracy|floatformat:2 }}</dd>
+          <dt class="col-sm-5">Train accuracy</dt><dd class="col-sm-7">{{ card.metrics.train_accuracy|floatformat:2 }}</dd>
+          <dt class="col-sm-5">ROC AUC</dt><dd class="col-sm-7">{{ card.metrics.roc_auc|floatformat:2 }}</dd>
+          <dt class="col-sm-5">Majority baseline</dt><dd class="col-sm-7">{{ card.metrics.majority_baseline_accuracy|floatformat:2 }}</dd>
+        {% endif %}
+      </dl>
+      <p class="mb-0 mt-3">Predictions in the last 30 days: {{ card.stats.count }} ({{ card.stats.failures }} failed)</p>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-lg-6"><div class="card p-3">
+    <h2 class="h5">ML-1 predicted categories</h2>
+    {% for item in ml1_picks %}<div class="mb-2"><div class="d-flex justify-content-between"><span>{{ item.name }}</span><span>{{ item.count }}</span></div><div class="athena-bar"><div style="width: {{ item.width }}%"></div></div></div>{% empty %}<p class="mb-0">No predictions yet.</p>{% endfor %}
+  </div></div>
+  <div class="col-lg-6"><div class="card p-3">
+    <h2 class="h5">ML-2 priority bands</h2>
+    {% for item in bands %}<div class="mb-2"><div class="d-flex justify-content-between"><span>{{ item.name }}</span><span>{{ item.count }}</span></div><div class="athena-bar"><div style="width: {{ item.width }}%"></div></div></div>{% endfor %}
+    <p class="mb-2">Override rate {{ override_percentage|floatformat:0 }}% ({{ override_count }} of {{ scored_count }} scored applications)</p>
+    <h3 class="h6">Screening pass rate by band</h3>
+    {% for band,data in pass_rates.items %}<div>{{ band|title }}: {% if data.total %}{{ data.passed }} of {{ data.total }} ({{ data.rate }}){% else %}{{ data.rate }}{% endif %}</div>{% endfor %}
+  </div></div>
+</div>
+
+<p>Current thresholds: High from {{ settings.ml2_high_threshold }}, Medium from {{ settings.ml2_medium_threshold }}. {% if user_role == 'admin' %}<a href="{% url 'adminpanel:ml_settings' %}">Change thresholds</a>{% endif %}</p>
+
+<div class="card p-3">
+  <h2 class="h5">Recent predictions</h2>
+  <div class="table-responsive"><table class="table align-middle mb-0">
+    <thead><tr><th>Time</th><th>Model</th><th>Version</th><th>For</th><th>Result</th><th>Succeeded</th></tr></thead>
+    <tbody>{% for prediction in recent_predictions %}
+      <tr><td>{{ prediction.created_at|date:'d M Y H:i' }}</td><td>{{ prediction.get_model_name_display }}</td><td>{{ prediction.model_version|default:'-' }}</td><td>{% if prediction.participant %}{{ prediction.participant.code }}{% elif prediction.application %}{{ prediction.application.reference }}{% else %}-{% endif %}</td>
+      <td>{% if prediction.model_name == 'ml1' %}{{ prediction.output.top_three.0.category|default:'-' }}{% else %}{{ prediction.output.band|title|default:'-' }}{% if prediction.output.probability is not None %} ({{ prediction.output.probability|floatformat:0 }}%){% endif %}{% endif %}</td>
+      <td>{% if prediction.succeeded %}<span class="text-success">Yes</span>{% else %}<span class="text-danger">No</span> <small>{{ prediction.error_message }}</small>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="6">No predictions yet.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}
