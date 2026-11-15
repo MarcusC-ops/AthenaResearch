@@ -3,15 +3,17 @@
 from dataclasses import dataclass
 from datetime import timedelta
 from collections import defaultdict
+from decimal import Decimal, ROUND_HALF_UP
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Case, Count, Q, Value, When
+from django.db.models import Avg, Case, Count, Q, Sum, Value, When
 from django.utils import timezone
 
 from .models import (
     AppSetting,
+    Appointment,
     Application,
     ApplicationAnswer,
     ApplicationStatusEvent,
@@ -19,12 +21,15 @@ from .models import (
     Notification,
     Organisation,
     ParticipantProfile,
+    Payout,
     PredictionLog,
     Region,
+    Review,
     Shortlist,
     StaffProfile,
     Study,
     StudyCategory,
+    SupportRequest,
 )
 from .validators import normalise_sg_mobile
 
@@ -103,9 +108,25 @@ def list_active_conditions():
     return Condition.objects.filter(is_active=True).order_by('name')
 
 
+def _with_review_ratings(studies):
+    return studies.annotate(
+        review_average=Avg(
+            'reviews__rating',
+            filter=Q(reviews__status=Review.Status.APPROVED),
+        ),
+        review_count=Count(
+            'reviews',
+            filter=Q(reviews__status=Review.Status.APPROVED),
+            distinct=True,
+        ),
+    )
+
+
 def public_studies():
-    return Study.objects.filter(
-        status__in=[Study.Status.PUBLISHED, Study.Status.FULL]
+    return _with_review_ratings(
+        Study.objects.filter(
+            status__in=[Study.Status.PUBLISHED, Study.Status.FULL]
+        )
     ).order_by('-published_at', '-id')
 
 
@@ -140,6 +161,17 @@ def shortlist_for(profile):
             participant=profile,
             study__status__in=[Study.Status.PUBLISHED, Study.Status.FULL],
         )
+        .annotate(
+            study_review_average=Avg(
+                'study__reviews__rating',
+                filter=Q(study__reviews__status=Review.Status.APPROVED),
+            ),
+            study_review_count=Count(
+                'study__reviews',
+                filter=Q(study__reviews__status=Review.Status.APPROVED),
+                distinct=True,
+            ),
+        )
         .select_related('study', 'study__category', 'study__organisation')
         .prefetch_related(
             'study__sites__region',
@@ -152,6 +184,8 @@ def shortlist_for(profile):
     studies = []
     for shortlist in shortlists:
         study = shortlist.study
+        study.review_average = shortlist.study_review_average
+        study.review_count = shortlist.study_review_count
         study.is_eligible = is_eligible(profile, study)
         studies.append(study)
     return studies
@@ -186,6 +220,7 @@ def compare_studies(profile, ids):
         'excluded_conditions',
         'regions',
     )
+    studies_by_id = _with_review_ratings(studies_by_id)
     studies = {str(study.pk): study for study in studies_by_id}
     return [studies[study_id] for study_id in study_ids]
 
@@ -269,8 +304,9 @@ def alternatives_for(profile, exclude_study, limit=3):
         category: index for index, category in enumerate(profile.ml1_categories or [])
     }
     studies = (
-        Study.objects.filter(
+        _with_review_ratings(Study.objects.filter(
             status__in=[Study.Status.PUBLISHED, Study.Status.FULL],
+        )
         )
         .exclude(pk=exclude_study.pk)
         .exclude(applications__participant=profile)
@@ -566,6 +602,214 @@ def change_status(application, to_status, actor=None, actor_role='system', note=
     if to_status == Application.Status.ENROLLED or current == Application.Status.ENROLLED:
         refresh_capacity(application.study)
     return application
+
+
+PARTICIPANT_STATUS_LABELS = {
+    Application.Status.SUBMITTED: 'Received',
+    Application.Status.AUTO_DECLINED: 'Not eligible this time',
+    Application.Status.UNDER_REVIEW: 'Being reviewed',
+    Application.Status.WAITLISTED: 'Waitlisted',
+    Application.Status.SHORTLISTED: 'Shortlisted',
+    Application.Status.SCREENING_SCHEDULED: 'Screening booked',
+    Application.Status.SCREENING_PASSED: 'Screening passed',
+    Application.Status.SCREENING_FAILED: 'Did not pass screening',
+    Application.Status.ENROLLED: 'Enrolled',
+    Application.Status.COMPLETED: 'Completed',
+    Application.Status.NOT_SELECTED: 'Not selected',
+    Application.Status.WITHDRAWN: 'Withdrawn',
+}
+
+WHAT_HAPPENS_NEXT = {
+    Application.Status.SUBMITTED:
+        'The research team is reviewing applications. You will see the next step here.',
+    Application.Status.UNDER_REVIEW:
+        'The research team is reviewing applications. You will see the next step here.',
+    Application.Status.WAITLISTED:
+        'The study is full right now. If a place opens, the research team can move you forward.',
+    Application.Status.SHORTLISTED:
+        'The research team will propose a screening appointment. You can confirm it here.',
+    Application.Status.SCREENING_SCHEDULED:
+        'Confirm your screening appointment below and attend at the time shown.',
+    Application.Status.SCREENING_PASSED:
+        'You passed screening. The research team will confirm whether you are enrolled.',
+    Application.Status.ENROLLED:
+        'You are taking part. Attend your study visits; compensation is paid as visits are completed.',
+    Application.Status.COMPLETED:
+        'Thank you for taking part. You can rate and review this study.',
+    Application.Status.AUTO_DECLINED:
+        'This study is not the right fit this time.',
+    Application.Status.NOT_SELECTED:
+        'The research team did not select you this time.',
+    Application.Status.SCREENING_FAILED:
+        'You did not pass screening this time.',
+    Application.Status.WITHDRAWN:
+        'You withdrew from this study.',
+}
+
+
+def my_applications(profile):
+    applications = (
+        Application.objects.filter(participant=profile)
+        .select_related('study', 'study__organisation', 'study__category')
+        .order_by('-updated_at', '-id')
+    )
+    open_applications = []
+    finished_applications = []
+    for application in applications:
+        application.participant_status_label = PARTICIPANT_STATUS_LABELS[
+            application.status
+        ]
+        if application.status in OPEN_STATUSES:
+            open_applications.append(application)
+        else:
+            finished_applications.append(application)
+    return open_applications, finished_applications
+
+
+def get_my_application(profile, application_id):
+    return (
+        Application.objects.select_related(
+            'study', 'study__organisation', 'study__category', 'preferred_site'
+        )
+        .prefetch_related(
+            'status_events',
+            'appointments__site',
+            'payouts',
+            'support_requests',
+        )
+        .get(pk=application_id, participant=profile)
+    )
+
+
+def timeline(application):
+    events = list(application.status_events.select_related('actor').order_by('created_at', 'id'))
+    for event in events:
+        event.participant_label = PARTICIPANT_STATUS_LABELS[event.to_status]
+        event.actor_label = ApplicationStatusEvent.ActorRole(event.actor_role).label
+    return events
+
+
+def what_happens_next(application):
+    text = WHAT_HAPPENS_NEXT[application.status]
+    if application.status == Application.Status.NOT_SELECTED and application.not_selected_reason:
+        return f'{text} {application.not_selected_reason}'
+    return text
+
+
+def confirm_appointment(profile, appointment_id):
+    appointment = Appointment.objects.filter(
+        pk=appointment_id,
+        application__participant=profile,
+        application__status__in=OPEN_STATUSES,
+        status=Appointment.Status.PROPOSED,
+        scheduled_for__gt=timezone.now(),
+    ).first()
+    if appointment is None:
+        raise ValidationError('This appointment cannot be confirmed.')
+    appointment.status = Appointment.Status.CONFIRMED
+    appointment.confirmed_at = timezone.now()
+    appointment.save(update_fields=['status', 'confirmed_at', 'updated_at'])
+    return appointment
+
+
+def notify_coordinators(organisation, message, link=''):
+    coordinators = User.objects.filter(
+        is_active=True,
+        groups__name='Coordinator',
+        staff_profile__organisation=organisation,
+    ).distinct()
+    return notify_users(coordinators, message, link)
+
+
+@transaction.atomic
+def withdraw_application(profile, application, reason=''):
+    if application.participant_id != profile.pk:
+        raise Application.DoesNotExist
+    change_status(
+        application,
+        Application.Status.WITHDRAWN,
+        actor=profile.user,
+        actor_role=ApplicationStatusEvent.ActorRole.PARTICIPANT,
+        note='You withdrew',
+    )
+    application.withdrawal_reason = reason
+    application.save(update_fields=['withdrawal_reason', 'updated_at'])
+    application.appointments.filter(
+        status__in=[Appointment.Status.PROPOSED, Appointment.Status.CONFIRMED]
+    ).update(status=Appointment.Status.CANCELLED, updated_at=timezone.now())
+    notify_coordinators(
+        application.study.organisation,
+        f'{application.reference} withdrew from {application.study.title}.',
+        f'/panel/applications/{application.pk}/',
+    )
+    return application
+
+
+def payouts_summary(application):
+    payouts = application.payouts.order_by('-created_at', '-id')
+    total_paid = payouts.filter(status=Payout.Status.PAID).aggregate(
+        total=Sum('amount')
+    )['total'] or 0
+    return payouts, total_paid
+
+
+@transaction.atomic
+def save_review(profile, study, rating, comment=''):
+    if not Application.objects.filter(
+        participant=profile,
+        study=study,
+        status=Application.Status.COMPLETED,
+    ).exists():
+        raise ValidationError('You can review a study after you complete it.')
+    review, created = Review.objects.get_or_create(
+        participant=profile,
+        study=study,
+        defaults={'rating': rating, 'comment': comment, 'status': Review.Status.PENDING},
+    )
+    if not created:
+        if review.status != Review.Status.PENDING:
+            raise ValidationError(
+                'This review has already been checked and cannot be changed.'
+            )
+        review.rating = rating
+        review.comment = comment
+        review.save(update_fields=['rating', 'comment', 'updated_at'])
+    return review
+
+
+def study_rating(study):
+    result = study.reviews.filter(status=Review.Status.APPROVED).aggregate(
+        average=Avg('rating'),
+        count=Count('id'),
+    )
+    average = result['average']
+    rounded = (
+        float(Decimal(str(average)).quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))
+        if average is not None else None
+    )
+    return rounded, result['count']
+
+
+def approved_reviews(study):
+    return (
+        study.reviews.filter(status=Review.Status.APPROVED)
+        .order_by('-created_at', '-id')
+    )
+
+
+@transaction.atomic
+def create_support_request(application, topic, question):
+    request = SupportRequest.objects.create(
+        application=application,
+        topic=topic,
+        question=question,
+    )
+    notify_staff(
+        f'New question about {application.reference}: '
+        f'{SupportRequest.Topic(topic).label}.',
+        f'/panel/support/{request.pk}/',
+    )
+    return request
 
 
 def get_settings():

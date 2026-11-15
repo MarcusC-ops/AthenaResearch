@@ -14,7 +14,14 @@
     · {{ study.get_study_type_display }} · {{ study.total_visits }} visits · {{ study.duration_weeks }} wks
     {% if study.show_compensation %} · {{ study.compensation_amount|money }}{% endif %}
   </div>
-  <div class="border-top mt-3 pt-3 small">
-    {% if study.status == 'full' %}Full{% else %}{{ study.places_left }} places left{% endif %}
+  <div class="border-top mt-3 pt-3 small d-flex justify-content-between gap-2">
+    <span>{% if study.status == 'full' %}Full{% else %}{{ study.places_left }} places left{% endif %}</span>
+    <span class="text-nowrap">
+      {% if study.review_count %}
+        {{ study.review_average|floatformat:1 }} / 5 ({{ study.review_count }})
+      {% else %}
+        No reviews yet
+      {% endif %}
+    </span>
   </div>
 </article>

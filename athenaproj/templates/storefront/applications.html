@@ -1,0 +1,51 @@
+{% extends 'storefront/base_storefront.html' %}
+
+{% block title %}My applications · Athena{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <h1>My applications</h1>
+  {% if open_applications %}
+    <section class="mt-4">
+      <h2 class="h3">Open</h2>
+      <div class="list-group">
+        {% for application in open_applications %}
+          <a class="list-group-item list-group-item-action p-3" href="{% url 'storefront:application_detail' application.pk %}">
+            <div class="d-flex justify-content-between align-items-start gap-3">
+              <div>
+                <h3 class="h5 mb-1">{{ application.study.title }}</h3>
+                <div>{{ application.study.organisation.name }}</div>
+                <small class="text-muted">reference {{ application.reference }} · Updated {{ application.updated_at|date:"j M Y" }}</small>
+              </div>
+              <span class="badge text-bg-light">{{ application.participant_status_label }}</span>
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+  {% if finished_applications %}
+    <section class="mt-4">
+      <h2 class="h3">Finished</h2>
+      <div class="list-group">
+        {% for application in finished_applications %}
+          <a class="list-group-item list-group-item-action p-3" href="{% url 'storefront:application_detail' application.pk %}">
+            <div class="d-flex justify-content-between align-items-start gap-3">
+              <div>
+                <h3 class="h5 mb-1">{{ application.study.title }}</h3>
+                <div>{{ application.study.organisation.name }}</div>
+                <small class="text-muted">reference {{ application.reference }} · Updated {{ application.updated_at|date:"j M Y" }}</small>
+              </div>
+              <span class="badge text-bg-light">{{ application.participant_status_label }}</span>
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+  {% if not open_applications and not finished_applications %}
+    <p class="mt-4">You have not applied to any studies yet.</p>
+    <a class="btn btn-primary" href="{% url 'storefront:studies' %}">Browse studies</a>
+  {% endif %}
+</div>
+{% endblock %}

@@ -7,10 +7,22 @@
   <a href="{% url 'storefront:studies' %}">Back</a>
   <div class="mt-4"><span class="badge text-bg-light">{{ study.category.name }}</span>{% if study.accepts_healthy_volunteers %} <span class="badge text-bg-light">Healthy volunteers welcome</span>{% endif %}</div>
   <h1 class="mt-3">{{ study.title }}</h1>
-  <p>{{ study.organisation.name }} · {{ study.get_study_type_display }}{% if study.phase != 'not_applicable' %} · {{ study.get_phase_display }}{% endif %}</p>
+  <p>{{ study.organisation.name }} · {{ study.get_study_type_display }} · {% if study.review_count %}{{ study.review_average|floatformat:1 }} / 5 ({{ study.review_count }} review{% if study.review_count != 1 %}s{% endif %}){% else %}No reviews yet{% endif %}</p>
   <div class="row g-4 mt-2">
     <div class="col-lg-8">
       <section class="card p-4 mb-3"><h2>About this study</h2><p class="mb-0">{{ study.description }}</p></section>
+      <section class="card p-4 mb-3">
+        <h2>What participants say</h2>
+        {% for review in approved_reviews %}
+          <div class="border-top py-3">
+            <strong>{{ review.rating }} / 5</strong>
+            {% if review.comment %}<p class="mb-1 mt-2">{{ review.comment }}</p>{% endif %}
+            <div class="small text-muted">A participant · {{ review.created_at|date:"M Y" }}</div>
+          </div>
+        {% empty %}
+          <p class="mb-0">No reviews yet</p>
+        {% endfor %}
+      </section>
       <section class="card p-4 mb-3"><h2>Who can take part</h2>
         <dl class="row mb-0">
           <dt class="col-sm-4">Age</dt><dd class="col-sm-8">{{ study.min_age }} to {{ study.max_age }} years</dd>

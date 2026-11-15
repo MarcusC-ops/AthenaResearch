@@ -1,0 +1,29 @@
+{% extends 'storefront/base_storefront.html' %}
+
+{% block title %}Withdraw from this study · Athena{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="form-narrow mx-auto card p-4">
+    {% if closed %}
+      <h1>This application is already closed.</h1>
+      <a href="{% url 'storefront:application_detail' application.pk %}">Back to application</a>
+    {% else %}
+      <h1>Withdraw from this study?</h1>
+      <p>You can withdraw at any time. The research team will be told and any open appointments will be cancelled.</p>
+      <form method="post">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label class="form-label" for="{{ form.reason.id_for_label }}">{{ form.reason.label }}</label>
+          {{ form.reason }}
+          {{ form.reason.errors }}
+        </div>
+        <div class="d-flex align-items-center gap-3">
+          <button class="btn btn-danger" type="submit">Withdraw</button>
+          <a href="{% url 'storefront:application_detail' application.pk %}">Keep my application</a>
+        </div>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
