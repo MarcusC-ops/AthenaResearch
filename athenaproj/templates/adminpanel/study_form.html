@@ -64,7 +64,7 @@
         {% include 'adminpanel/_form_field.html' with field=form.auto_shortlist_high %}
       </section>
       <div class="d-flex gap-2">
-        <button class="btn btn-primary" type="submit">Save as draft</button>
+        <button class="btn btn-primary" type="submit">{% if staff_mode %}Save changes{% else %}Save as draft{% endif %}</button>
         <a class="btn btn-outline-secondary" href="{% if study %}{% url 'adminpanel:study_detail' study.pk %}{% else %}{% url 'adminpanel:study_list' %}{% endif %}">Cancel</a>
       </div>
     </div>

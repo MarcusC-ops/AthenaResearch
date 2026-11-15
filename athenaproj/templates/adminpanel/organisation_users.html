@@ -1,0 +1,46 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Coordinators · {{ organisation.name }} · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <h1>Coordinators · {{ organisation.name }}</h1>
+  <section class="card p-3 mb-4">
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead><tr><th>Name</th><th>Email</th><th>Job title</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>
+          {% for profile in coordinators %}
+            <tr>
+              <td>{{ profile.user.get_full_name }}</td><td>{{ profile.user.email }}</td><td>{{ profile.job_title }}</td>
+              <td><span class="badge text-bg-light">{{ profile.account_status }}</span></td>
+              <td class="text-nowrap">
+                {% if not profile.user.is_active and not profile.user.last_login %}
+                  <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="action" value="approve"><input type="hidden" name="user_id" value="{{ profile.user_id }}"><button class="btn btn-sm btn-outline-primary" type="submit">Approve</button></form>
+                {% elif not profile.user.is_active %}
+                  <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="action" value="switch_on"><input type="hidden" name="user_id" value="{{ profile.user_id }}"><button class="btn btn-sm btn-outline-primary" type="submit">Switch on</button></form>
+                {% else %}
+                  <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="action" value="switch_off"><input type="hidden" name="user_id" value="{{ profile.user_id }}"><button class="btn btn-sm btn-outline-primary" type="submit">Switch off</button></form>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5">No coordinators yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="card p-4 form-narrow">
+    <h2 class="h4">Add coordinator</h2>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add">
+      {% for field in form %}
+        <div class="mb-3">{{ field.label_tag }}{{ field }}{% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}{% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}</div>
+      {% endfor %}
+      <button class="btn btn-primary" type="submit">Add coordinator</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

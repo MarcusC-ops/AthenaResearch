@@ -28,6 +28,7 @@ from .models import (
     PredictionLog,
     Region,
     Review,
+    Site,
     Shortlist,
     StaffProfile,
     Study,
@@ -434,6 +435,310 @@ def submit_study_for_review(study, user):
         f'/panel/moderation/{study.pk}/',
     )
     return study
+
+
+@transaction.atomic
+def approve_study(study, user):
+    if study.status not in (Study.Status.PENDING_REVIEW, Study.Status.PAUSED):
+        raise ValidationError('This study cannot be approved.')
+    if not all(check.passed for check in run_compliance_checks(study)):
+        raise ValidationError('Every check must pass before you approve.')
+    study.status = Study.Status.PUBLISHED
+    study.published_at = study.published_at or timezone.now()
+    study.reviewed_by = user
+    study.paused_reason = ''
+    study.save(update_fields=[
+        'status', 'published_at', 'reviewed_by', 'paused_reason', 'updated_at',
+    ])
+    refresh_capacity(study)
+    notify_coordinators(
+        study.organisation,
+        f'{study.title} is approved and live on Athena.',
+        f'/panel/studies/{study.pk}/',
+    )
+    return study
+
+
+@transaction.atomic
+def return_study(study, user, comments):
+    comments = (comments or '').strip()
+    if study.status != Study.Status.PENDING_REVIEW or not comments:
+        raise ValidationError('Add comments for the coordinator.')
+    study.status = Study.Status.CHANGES_REQUESTED
+    study.moderation_comments = comments
+    study.reviewed_by = user
+    study.save(update_fields=[
+        'status', 'moderation_comments', 'reviewed_by', 'updated_at',
+    ])
+    notify_coordinators(
+        study.organisation,
+        f'{study.title} needs changes before it can go live.',
+        f'/panel/studies/{study.pk}/',
+    )
+    return study
+
+
+@transaction.atomic
+def unpublish_study(study, user, reason):
+    reason = (reason or '').strip()
+    if study.status not in (Study.Status.PUBLISHED, Study.Status.FULL) or not reason:
+        raise ValidationError('Enter a reason to pause this study.')
+    study.status = Study.Status.PAUSED
+    study.paused_reason = reason
+    study.reviewed_by = user
+    study.save(update_fields=[
+        'status', 'paused_reason', 'reviewed_by', 'updated_at',
+    ])
+    notify_coordinators(
+        study.organisation,
+        f'{study.title} has been paused by Athena: {reason}.',
+        f'/panel/studies/{study.pk}/',
+    )
+    return study
+
+
+@transaction.atomic
+def update_study_as_staff(form, user):
+    study = form.instance
+    if not study.pk:
+        raise ValidationError('Only existing studies can be edited by staff.')
+    study = Study.objects.select_for_update().get(pk=study.pk)
+    form.instance = study
+    updated = form.save(commit=False)
+    updated.last_edited_by = user
+    updated.save()
+    form.save_m2m()
+    refresh_capacity(updated)
+    return updated
+
+
+@transaction.atomic
+def create_organisation(form, user):
+    organisation = form.save()
+    return organisation
+
+
+@transaction.atomic
+def update_organisation(form):
+    return form.save()
+
+
+@transaction.atomic
+def set_organisation_active(organisation, active, user):
+    organisation.is_active = active
+    organisation.save(update_fields=['is_active', 'updated_at'])
+    if not active:
+        Study.objects.filter(
+            organisation=organisation,
+            status__in=[Study.Status.PUBLISHED, Study.Status.FULL],
+        ).update(
+            status=Study.Status.PAUSED,
+            paused_reason='Organisation deactivated',
+            updated_at=timezone.now(),
+        )
+        User.objects.filter(
+            groups__name='Coordinator',
+            staff_profile__organisation=organisation,
+        ).update(is_active=False)
+    return organisation
+
+
+@transaction.atomic
+def save_site(form):
+    site = form.save()
+    return site
+
+
+@transaction.atomic
+def set_record_active(record, active):
+    if isinstance(record, Site):
+        return set_site_active(record, active)
+    if isinstance(record, (StudyCategory, Condition)):
+        record.is_active = active
+        record.save(update_fields=['is_active', 'updated_at'])
+        return record
+    raise ValidationError('This record cannot be hidden or shown.')
+
+
+@transaction.atomic
+def save_taxonomy_form(form):
+    return form.save()
+
+
+@transaction.atomic
+def set_site_active(site, active):
+    if not active and Study.objects.filter(
+        sites=site,
+        status__in=[
+            Study.Status.PUBLISHED, Study.Status.FULL, Study.Status.PAUSED,
+        ],
+    ).exists():
+        raise ValidationError('This site is used by a live study.')
+    site.is_active = active
+    site.save(update_fields=['is_active', 'updated_at'])
+    return site
+
+
+@transaction.atomic
+def delete_unused_record(record):
+    in_use = (
+        isinstance(record, Site)
+        and (
+            record.studies.exists()
+            or record.applications.exists()
+            or record.appointments.exists()
+        )
+    ) or (
+        isinstance(record, StudyCategory) and record.studies.exists()
+    ) or (
+        isinstance(record, Condition)
+        and (
+            record.participant_profiles.exists()
+            or record.required_by_studies.exists()
+            or record.excluded_by_studies.exists()
+        )
+    )
+    if in_use:
+        raise ValidationError('This is in use, so it has been kept. Hide it instead.')
+    try:
+        record.delete()
+    except (ProtectedError, RestrictedError) as error:
+        raise ValidationError('This is in use, so it has been kept. Hide it instead.') from error
+
+
+@transaction.atomic
+def approve_researcher(user_to_approve, staff_user):
+    if (
+        user_to_approve.is_active
+        or not user_to_approve.groups.filter(name='Coordinator').exists()
+    ):
+        raise ValidationError('This researcher cannot be approved.')
+    user_to_approve.is_active = True
+    user_to_approve.save(update_fields=['is_active'])
+    messages = user_to_approve.get_full_name() or user_to_approve.email
+    return f'{messages} can now sign in.'
+
+
+@transaction.atomic
+def set_coordinator_active(user, active):
+    if not user.groups.filter(name='Coordinator').exists():
+        raise ValidationError('This account is not a coordinator.')
+    user.is_active = active
+    user.save(update_fields=['is_active'])
+    return user
+
+
+@transaction.atomic
+def add_coordinator(organisation, form):
+    data = form.cleaned_data
+    user = User(
+        username=data['email'].strip().lower(),
+        email=data['email'].strip().lower(),
+        first_name=data['first_name'],
+        last_name=data['last_name'],
+        is_active=True,
+    )
+    validate_password(data['temporary_password'], user=user)
+    mobile = normalise_sg_mobile(data['mobile'])
+    user.set_password(data['temporary_password'])
+    user.save()
+    user.groups.add(Group.objects.get(name='Coordinator'))
+    StaffProfile.objects.create(
+        user=user,
+        organisation=organisation,
+        job_title=data['job_title'],
+        mobile=mobile,
+    )
+    return user
+
+
+def search_participants(q):
+    query = (q or '').strip()
+    participants = ParticipantProfile.objects.select_related(
+        'user', 'region'
+    ).annotate(
+        application_count=Count('applications', distinct=True),
+    )
+    if query:
+        code = query.upper()
+        if code.startswith('P-') and code[2:].isdigit():
+            return participants.filter(
+                user_id=int(code[2:])
+            ).order_by('-created_at', '-id')
+        return participants.filter(
+            Q(user__first_name__icontains=query)
+            | Q(user__last_name__icontains=query)
+            | Q(user__email__icontains=query)
+            | Q(mobile__icontains=query)
+        ).order_by('-created_at', '-id')
+    return participants.order_by('-created_at', '-id')
+
+
+def ops_dashboard():
+    from ml.services import model_health
+
+    today = timezone.localdate()
+    open_applications = Application.objects.filter(status__in=OPEN_STATUSES)
+    band_counts = dict(
+        open_applications.values_list('ml2_band').annotate(count=Count('id'))
+    )
+    band_counts = {
+        band: band_counts.get(band, 0) for band, _label in Application.Band.choices
+    }
+    health = model_health()
+    alerts = [
+        f'The {model.upper().replace("ML", "ML-")} model file could not be loaded.'
+        for model, healthy in health.items() if not healthy
+    ]
+    expiring_studies = Study.objects.filter(
+        status__in=[Study.Status.PUBLISHED, Study.Status.FULL, Study.Status.PAUSED],
+        irb_expiry__gte=today,
+        irb_expiry__lte=today + timedelta(days=30),
+    ).select_related('organisation').order_by('irb_expiry', 'title')
+    alerts.extend(
+        {
+            'kind': 'irb',
+            'study': study,
+            'date': study.irb_expiry,
+        }
+        for study in expiring_studies
+    )
+    waitlisted = list(
+        Study.objects.filter(status=Study.Status.FULL).annotate(
+            waitlist_count=Count(
+                'applications',
+                filter=Q(applications__status=Application.Status.WAITLISTED),
+            ),
+        ).filter(waitlist_count__gt=0).select_related('organisation').order_by('title')
+    )
+    alerts.extend(
+        {'kind': 'waitlist', 'study': study, 'count': study.waitlist_count}
+        for study in waitlisted
+    )
+    statuses = dict(Study.objects.values_list('status').annotate(count=Count('id')))
+    now = timezone.now()
+    participant_users = User.objects.filter(
+        groups__name='Participant',
+    ).distinct()
+    return {
+        'listing_count': Study.objects.filter(status=Study.Status.PENDING_REVIEW).count(),
+        'payout_count': Payout.objects.filter(status=Payout.Status.REQUESTED).count(),
+        'review_count': Review.objects.filter(status=Review.Status.PENDING).count(),
+        'support_count': SupportRequest.objects.filter(status=SupportRequest.Status.OPEN).count(),
+        'band_counts': band_counts,
+        'band_choices': Application.Band.choices,
+        'alerts': alerts,
+        'study_status_counts': {
+            status: statuses.get(status, 0) for status, _label in Study.Status.choices
+        },
+        'study_status_choices': Study.Status.choices,
+        'new_participants_7': participant_users.filter(
+            date_joined__gte=now - timedelta(days=7)
+        ).count(),
+        'new_participants_30': participant_users.filter(
+            date_joined__gte=now - timedelta(days=30)
+        ).count(),
+    }
 
 
 @transaction.atomic

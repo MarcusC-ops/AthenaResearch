@@ -1,0 +1,39 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Organisations · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <h1>Organisations</h1>
+  <p>Research partners, their sites and the coordinators who act for them.</p>
+  <section class="card p-3 mb-4">
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead><tr><th>Organisation</th><th>Contact</th><th>Sites</th><th>Studies</th><th>Coordinators</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for organisation in organisations %}
+            <tr>
+              <td><a href="{% url 'adminpanel:organisation_detail' organisation.pk %}">{{ organisation.name }}</a></td>
+              <td>{{ organisation.contact_person }}<br><a href="mailto:{{ organisation.contact_email }}">{{ organisation.contact_email }}</a></td>
+              <td>{{ organisation.site_count }}</td><td>{{ organisation.study_count }}</td><td>{{ organisation.coordinator_count }}</td>
+              <td><span class="badge text-bg-light">{% if organisation.is_active %}Active{% else %}Switched off{% endif %}</span></td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6">No organisations yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="card p-4 form-narrow">
+    <h2 class="h4">New organisation</h2>
+    <form method="post">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="mb-3">{{ field.label_tag }}{{ field }}{% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}</div>
+      {% endfor %}
+      <button class="btn btn-primary" type="submit">Create organisation</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

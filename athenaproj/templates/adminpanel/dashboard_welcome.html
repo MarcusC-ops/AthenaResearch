@@ -1,0 +1,10 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Athena panel{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <h1>Welcome, {{ user.first_name }}.</h1>
+  <p class="lead mt-3">{{ role_line }}</p>
+</div>
+{% endblock %}

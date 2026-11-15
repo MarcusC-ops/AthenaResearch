@@ -1,0 +1,16 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Edit site · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <section class="card p-4 form-narrow">
+    <h1 class="h3">Edit site</h1>
+    <form method="post">
+      {% csrf_token %}
+      {% for field in form %}<div class="mb-3">{{ field.label_tag }}{{ field }}{% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}</div>{% endfor %}
+      <div class="d-flex gap-2"><button class="btn btn-primary" type="submit">Save changes</button><a class="btn btn-outline-secondary" href="{% url 'adminpanel:organisation_sites' organisation.pk %}">Cancel</a></div>
+    </form>
+  </section>
+</div>
+{% endblock %}

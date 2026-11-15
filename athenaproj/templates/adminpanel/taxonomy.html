@@ -1,0 +1,67 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Taxonomy · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <h1 class="mb-4">Taxonomy</h1>
+  <section class="card p-3 mb-4">
+    <h2 class="h4">Categories</h2>
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead><tr><th>Name</th><th>Slug</th><th>ML label</th><th>Description</th><th>Order</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>
+          {% for category in categories %}
+            <tr>
+              <td>{{ category.name }}</td><td>{{ category.slug }}</td><td>{{ category.ml_label }}</td><td>{{ category.description }}</td><td>{{ category.display_order }}</td>
+              <td><span class="badge text-bg-light">{% if category.is_active %}Active{% else %}Hidden{% endif %}</span></td>
+              <td class="text-nowrap">
+                <a href="{% url 'adminpanel:taxonomy_category_edit' category.pk %}">Edit</a>
+                · <a href="{% if category.is_active %}{% url 'adminpanel:taxonomy_active' 'category' category.pk 'hide' %}{% else %}{% url 'adminpanel:taxonomy_active' 'category' category.pk 'show' %}{% endif %}">{% if category.is_active %}Hide{% else %}Show{% endif %}</a>
+                {% if not category.studies.exists %} · <a href="{% url 'adminpanel:taxonomy_delete' 'category' category.pk %}">Delete</a>{% endif %}
+              </td>
+            </tr>
+          {% empty %}<tr><td colspan="7">No categories.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <h3 class="h5 mt-3">Add category</h3>
+    <form method="post" action="{% url 'adminpanel:taxonomy_category_new' %}" class="row g-3">
+      {% csrf_token %}
+      {% for field in category_form %}
+        <div class="col-md-6">{{ field.label_tag }}{{ field }}{% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}{% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}</div>
+      {% endfor %}
+      <div class="col-12"><button class="btn btn-primary" type="submit">Add category</button></div>
+    </form>
+  </section>
+  <section class="card p-3">
+    <h2 class="h4">Conditions</h2>
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead><tr><th>Name</th><th>ML flag</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>
+          {% for condition in conditions %}
+            <tr>
+              <td>{{ condition.name }}</td><td>{{ condition.get_ml_flag_display|default:"Not set" }}</td>
+              <td><span class="badge text-bg-light">{% if condition.is_active %}Active{% else %}Hidden{% endif %}</span></td>
+              <td class="text-nowrap">
+                <a href="{% url 'adminpanel:taxonomy_condition_edit' condition.pk %}">Edit</a>
+                · <a href="{% if condition.is_active %}{% url 'adminpanel:taxonomy_active' 'condition' condition.pk 'hide' %}{% else %}{% url 'adminpanel:taxonomy_active' 'condition' condition.pk 'show' %}{% endif %}">{% if condition.is_active %}Hide{% else %}Show{% endif %}</a>
+                {% if not condition.participant_profiles.exists and not condition.required_by_studies.exists and not condition.excluded_by_studies.exists %} · <a href="{% url 'adminpanel:taxonomy_delete' 'condition' condition.pk %}">Delete</a>{% endif %}
+              </td>
+            </tr>
+          {% empty %}<tr><td colspan="4">No conditions.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <h3 class="h5 mt-3">Add condition</h3>
+    <form method="post" action="{% url 'adminpanel:taxonomy_condition_new' %}" class="row g-3">
+      {% csrf_token %}
+      {% for field in condition_form %}
+        <div class="col-md-6">{{ field.label_tag }}{{ field }}{% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}</div>
+      {% endfor %}
+      <div class="col-12"><button class="btn btn-primary" type="submit">Add condition</button></div>
+    </form>
+  </section>
+</div>
+{% endblock %}

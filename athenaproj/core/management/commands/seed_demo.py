@@ -1002,6 +1002,8 @@ class Command(BaseCommand):
                 'irb_expiry': add_months(deadline, 3),
                 'published_at': published_at - timedelta(days=index) if status in ('published', 'full') else None,
             }
+            if title == 'Kopi, Teh and Blood Sugar: Measuring Local Drinks':
+                defaults['irb_expiry'] = today + timedelta(days=20)
             if status == 'full':
                 defaults.update(target_enrolment=3)
             if status == 'changes_requested':

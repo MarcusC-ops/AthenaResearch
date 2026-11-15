@@ -2,12 +2,17 @@ from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.views import LogoutView
 from django.core.exceptions import ValidationError
+from django.db.models import Count, Q
 from django.http import Http404, HttpResponseBadRequest, HttpResponseNotAllowed
+from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
-from core.models import Application, Appointment, Payout, Study
+from core.models import (
+    Application, Appointment, Condition, Organisation, ParticipantProfile,
+    Payout, Site, Study, StudyCategory, SupportRequest, Review,
+)
 from core.services import (
     InvalidStatusMove,
     age_band,
@@ -20,8 +25,13 @@ from core.services import (
     complete_participation,
     coordinator_dashboard,
     coordinator_withdraw,
+    approve_researcher,
+    approve_study,
+    add_coordinator,
+    create_organisation,
     create_pre_screen_question,
     create_study,
+    delete_unused_record,
     delete_pre_screen_question,
     enrol_applicant,
     enrolled_count,
@@ -41,6 +51,17 @@ from core.services import (
     record_screening_outcome,
     request_payout,
     run_compliance_checks,
+    ops_dashboard,
+    save_site,
+    save_taxonomy_form,
+    search_participants,
+    set_coordinator_active,
+    set_organisation_active,
+    set_record_active,
+    update_organisation,
+    update_study_as_staff,
+    return_study,
+    unpublish_study,
     save_visit_date,
     schedule_screening,
     shortlist_applicant,
@@ -54,16 +75,23 @@ from core.services import (
     waitlist_applicant,
 )
 
-from .decorators import coordinator_required
+from .decorators import coordinator_required, staff_required
 from .forms import (
     ApplicantFilterForm,
+    CategoryForm,
+    ConditionForm,
+    CoordinatorForm,
     CoordinatorWithdrawForm,
+    ModerationCommentsForm,
     NotSelectedForm,
+    OrganisationForm,
     OverrideBandForm,
     ParticipationFilterForm,
     PreScreenQuestionForm,
+    ReasonForm,
     ScreeningOutcomeForm,
     ScreeningScheduleForm,
+    SiteForm,
     StudyForm,
     VisitDateForm,
 )
@@ -71,17 +99,17 @@ from .forms import (
 
 def dashboard(request):
     role = user_role(request.user)
+    if role in ('staff', 'admin'):
+        return operations_dashboard(request)
     if role == 'coordinator':
         dashboard_data = coordinator_dashboard(request.user)
         if dashboard_data:
             return render(request, 'adminpanel/dashboard_coordinator.html', dashboard_data)
         else:
             role_line = f'Study coordinator at {request.user.staff_profile.organisation}'
-    elif role == 'admin':
-        role_line = 'Platform admin'
     else:
-        role_line = 'Operations executive'
-    return render(request, 'adminpanel/dashboard.html', {'role_line': role_line})
+        role_line = 'Study coordinator'
+    return render(request, 'adminpanel/dashboard_welcome.html', {'role_line': role_line})
 
 
 def panel_login(request):
@@ -188,9 +216,13 @@ def study_new(request):
     })
 
 
-@coordinator_required
 @require_http_methods(['GET', 'POST'])
 def study_edit(request, study_id):
+    if user_role(request.user) in ('staff', 'admin'):
+        return staff_study_edit(request, study_id)
+    if user_role(request.user) != 'coordinator':
+        from django.core.exceptions import PermissionDenied
+        raise PermissionDenied
     study = _panel_study_or_404(request, study_id)
     if study.status not in (Study.Status.DRAFT, Study.Status.CHANGES_REQUESTED):
         messages.error(request, 'Only draft or returned listings can be edited.')
@@ -213,6 +245,36 @@ def study_edit(request, study_id):
         'heading': f'Edit {study.title}',
         'is_new': False,
         'study': study,
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def staff_study_edit(request, study_id):
+    study = get_object_or_404(
+        Study.objects.select_related('organisation', 'category'),
+        pk=study_id,
+    )
+    form = StudyForm(
+        request.POST or None,
+        instance=study,
+        organisation=study.organisation,
+        staff_mode=True,
+    )
+    if request.method == 'POST' and form.is_valid():
+        try:
+            study = update_study_as_staff(form, request.user)
+        except ValidationError as error:
+            form.add_error(None, error)
+        else:
+            messages.success(request, 'Study changes saved.')
+            return redirect('adminpanel:study_detail', study_id=study.pk)
+    return render(request, 'adminpanel/study_form.html', {
+        'form': form,
+        'heading': f'Edit {study.title}',
+        'is_new': False,
+        'study': study,
+        'staff_mode': True,
     })
 
 
@@ -875,4 +937,438 @@ def insights(request):
         'pass_rates': pass_rates,
         'distribution': distribution,
         'mix': mix,
+    })
+
+
+@staff_required
+def operations_dashboard(request):
+    return render(request, 'adminpanel/dashboard.html', ops_dashboard())
+
+
+@staff_required
+def moderation(request):
+    tabs = [
+        ('pending_review', 'Pending review'),
+        ('changes_requested', 'Changes requested'),
+        ('live', 'Live'),
+        ('paused', 'Paused'),
+    ]
+    selected = request.GET.get('status', 'pending_review')
+    if selected == 'live':
+        statuses = [Study.Status.PUBLISHED, Study.Status.FULL]
+        studies = Study.objects.filter(status__in=statuses)
+    elif selected in dict(tabs):
+        studies = Study.objects.filter(status=selected)
+    else:
+        selected = 'pending_review'
+        studies = Study.objects.filter(status=Study.Status.PENDING_REVIEW)
+    return render(request, 'adminpanel/moderation.html', {
+        'studies': studies.select_related('organisation').order_by('-submitted_at', '-id'),
+        'tabs': [
+            {
+                'value': value,
+                'label': label,
+                'count': (
+                    Study.objects.filter(
+                        status__in=[Study.Status.PUBLISHED, Study.Status.FULL]
+                    ).count() if value == 'live'
+                    else Study.objects.filter(status=value).count()
+                ),
+                'active': selected == value,
+            }
+            for value, label in tabs
+        ],
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def moderation_detail(request, study_id):
+    study = get_object_or_404(
+        Study.objects.select_related('organisation', 'category'),
+        pk=study_id,
+    )
+    checks = run_compliance_checks(study)
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        try:
+            if action == 'approve':
+                approve_study(study, request.user)
+                messages.success(request, 'Study approved and published.')
+            elif action == 'return':
+                form = ModerationCommentsForm(request.POST)
+                if not form.is_valid():
+                    return render(request, 'adminpanel/moderation_detail.html', {
+                        'study': study,
+                        'checks': checks,
+                        'all_pass': all(check.passed for check in checks),
+                        'comments_form': form,
+                        'preview': True,
+                        'approved_reviews': [],
+                        'is_shortlisted': False,
+                        'application': None,
+                        'apply_step': None,
+                    })
+                return_study(study, request.user, form.cleaned_data['comments'])
+                messages.success(request, 'Study returned with comments.')
+            else:
+                return HttpResponseBadRequest('Unknown action.')
+        except ValidationError as error:
+            messages.error(request, error.messages[0])
+        return redirect('adminpanel:moderation_detail', study_id=study.pk)
+    return render(request, 'adminpanel/moderation_detail.html', {
+        'study': study,
+        'checks': checks,
+        'all_pass': all(check.passed for check in checks),
+        'comments_form': ModerationCommentsForm(),
+        'preview': True,
+        'approved_reviews': [],
+        'is_shortlisted': False,
+        'application': None,
+        'apply_step': None,
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def moderation_unpublish(request, study_id):
+    study = get_object_or_404(
+        Study,
+        pk=study_id,
+        status__in=[Study.Status.PUBLISHED, Study.Status.FULL],
+    )
+    form = ReasonForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        try:
+            unpublish_study(study, request.user, form.cleaned_data['reason'])
+        except ValidationError as error:
+            form.add_error('reason', error.messages[0])
+        else:
+            messages.success(request, 'Study paused.')
+            return redirect('adminpanel:moderation_detail', study_id=study.pk)
+    return render(request, 'adminpanel/confirmation.html', {
+        'heading': 'Unpublish study',
+        'warning': '',
+        'form': form,
+        'cancel_url': f'/panel/moderation/{study.pk}/',
+        'button_text': 'Unpublish',
+    })
+
+
+@staff_required
+def organisations(request):
+    form = OrganisationForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        try:
+            organisation = create_organisation(form, request.user)
+        except ValidationError as error:
+            form.add_error(None, error)
+        else:
+            messages.success(request, 'Organisation created.')
+            return redirect('adminpanel:organisation_detail', organisation_id=organisation.pk)
+    organisation_list = Organisation.objects.annotate(
+        site_count=Count('sites', distinct=True),
+        study_count=Count('studies', distinct=True),
+        coordinator_count=Count(
+            'staff_profiles__user',
+            filter=Q(staff_profiles__user__groups__name='Coordinator'),
+            distinct=True,
+        ),
+    ).order_by('name')
+    return render(request, 'adminpanel/organisations.html', {
+        'organisations': organisation_list,
+        'form': form,
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def organisation_detail(request, organisation_id):
+    organisation = get_object_or_404(Organisation, pk=organisation_id)
+    form = OrganisationForm(request.POST or None, instance=organisation)
+    if request.method == 'POST' and form.is_valid():
+        update_organisation(form)
+        messages.success(request, 'Organisation changes saved.')
+        return redirect('adminpanel:organisation_detail', organisation_id=organisation.pk)
+    return render(request, 'adminpanel/organisation_detail.html', {
+        'organisation': organisation,
+        'form': form,
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def organisation_active_confirmation(request, organisation_id, action):
+    organisation = get_object_or_404(Organisation, pk=organisation_id)
+    if action not in ('deactivate', 'reactivate'):
+        raise Http404
+    active = action == 'reactivate'
+    if request.method == 'POST':
+        set_organisation_active(organisation, active, request.user)
+        messages.success(
+            request,
+            'Organisation reactivated.' if active else 'Organisation deactivated.',
+        )
+        return redirect('adminpanel:organisation_detail', organisation_id=organisation.pk)
+    return render(request, 'adminpanel/confirmation.html', {
+        'heading': 'Reactivate organisation' if active else 'Deactivate organisation',
+        'warning': (
+            '' if active else 'Its live studies will be paused.'
+        ),
+        'form': None,
+        'cancel_url': f'/panel/organisations/{organisation.pk}/',
+        'button_text': 'Reactivate' if active else 'Deactivate',
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def organisation_sites(request, organisation_id):
+    organisation = get_object_or_404(Organisation, pk=organisation_id)
+    form = SiteForm(request.POST or None, organisation=organisation)
+    if request.method == 'POST' and form.is_valid():
+        site = save_site(form)
+        messages.success(request, 'Site added.')
+        return redirect('adminpanel:organisation_sites', organisation_id=organisation.pk)
+    return render(request, 'adminpanel/organisation_sites.html', {
+        'organisation': organisation,
+        'sites': organisation.sites.select_related('region').order_by('name'),
+        'form': form,
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def site_edit(request, organisation_id, site_id):
+    organisation = get_object_or_404(Organisation, pk=organisation_id)
+    site = get_object_or_404(Site, pk=site_id, organisation=organisation)
+    form = SiteForm(request.POST or None, instance=site, organisation=organisation)
+    if request.method == 'POST' and form.is_valid():
+        save_site(form)
+        messages.success(request, 'Site changes saved.')
+        return redirect('adminpanel:organisation_sites', organisation_id=organisation.pk)
+    return render(request, 'adminpanel/site_edit.html', {
+        'organisation': organisation,
+        'site': site,
+        'form': form,
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def site_active_confirmation(request, organisation_id, site_id, action):
+    organisation = get_object_or_404(Organisation, pk=organisation_id)
+    site = get_object_or_404(Site, pk=site_id, organisation=organisation)
+    if action not in ('deactivate', 'reactivate'):
+        raise Http404
+    active = action == 'reactivate'
+    if request.method == 'POST':
+        try:
+            set_record_active(site, active)
+        except ValidationError as error:
+            messages.error(request, error.messages[0])
+            return redirect('adminpanel:organisation_sites', organisation_id=organisation.pk)
+        messages.success(request, 'Site reactivated.' if active else 'Site deactivated.')
+        return redirect('adminpanel:organisation_sites', organisation_id=organisation.pk)
+    return render(request, 'adminpanel/confirmation.html', {
+        'heading': 'Reactivate site' if active else 'Deactivate site',
+        'warning': '',
+        'form': None,
+        'cancel_url': f'/panel/organisations/{organisation.pk}/sites/',
+        'button_text': 'Reactivate' if active else 'Deactivate',
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def site_delete_confirmation(request, organisation_id, site_id):
+    organisation = get_object_or_404(Organisation, pk=organisation_id)
+    site = get_object_or_404(Site, pk=site_id, organisation=organisation)
+    if request.method == 'POST':
+        try:
+            delete_unused_record(site)
+        except ValidationError as error:
+            messages.error(request, error.messages[0])
+        else:
+            messages.success(request, 'Site deleted.')
+        return redirect('adminpanel:organisation_sites', organisation_id=organisation.pk)
+    return render(request, 'adminpanel/confirmation.html', {
+        'heading': 'Delete site',
+        'warning': f'Delete {site.name}?',
+        'form': None,
+        'cancel_url': f'/panel/organisations/{organisation.pk}/sites/',
+        'button_text': 'Delete site',
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def organisation_users(request, organisation_id):
+    organisation = get_object_or_404(Organisation, pk=organisation_id)
+    coordinators = organisation.staff_profiles.filter(
+        user__groups__name='Coordinator'
+    ).select_related('user').order_by('user__last_name', 'user__first_name')
+    for profile in coordinators:
+        profile.account_status = (
+            'Active' if profile.user.is_active
+            else 'Switched off' if profile.user.last_login
+            else 'Waiting for approval'
+        )
+    form = CoordinatorForm(request.POST or None)
+    if request.method == 'POST':
+        action = request.POST.get('action', '')
+        if action == 'add' and form.is_valid():
+            try:
+                user = add_coordinator(organisation, form)
+            except ValidationError as error:
+                form.add_error('temporary_password', error)
+            else:
+                messages.success(request, 'Coordinator added.')
+                return redirect('adminpanel:organisation_users', organisation_id=organisation.pk)
+        elif action in ('approve', 'switch_off', 'switch_on'):
+            user = get_object_or_404(
+                coordinators,
+                user_id=request.POST.get('user_id'),
+            ).user
+            try:
+                if action == 'approve':
+                    message = approve_researcher(user, request.user)
+                    messages.success(request, message)
+                else:
+                    set_coordinator_active(user, action == 'switch_on')
+                    messages.success(
+                        request,
+                        'Coordinator switched on.' if action == 'switch_on'
+                        else 'Coordinator switched off.',
+                    )
+            except ValidationError as error:
+                messages.error(request, error.messages[0])
+            return redirect('adminpanel:organisation_users', organisation_id=organisation.pk)
+        else:
+            return HttpResponseBadRequest('Unknown action.')
+    return render(request, 'adminpanel/organisation_users.html', {
+        'organisation': organisation,
+        'coordinators': coordinators,
+        'form': form,
+    })
+
+
+@staff_required
+def participants(request):
+    query = request.GET.get('q', '')
+    paginator = Paginator(search_participants(query), 25)
+    page = paginator.get_page(request.GET.get('page'))
+    return render(request, 'adminpanel/participants.html', {
+        'page_obj': page,
+        'query': query,
+    })
+
+
+@staff_required
+def participant_detail(request, participant_id):
+    participant = get_object_or_404(
+        ParticipantProfile.objects.select_related('user', 'region').prefetch_related(
+            'conditions',
+            'applications__study',
+            'applications__payouts',
+        ),
+        pk=participant_id,
+    )
+    return render(request, 'adminpanel/participant_detail.html', {
+        'participant': participant,
+        'applications': participant.applications.select_related(
+            'study'
+        ).prefetch_related('payouts').order_by('-created_at', '-id'),
+        'payouts': Payout.objects.filter(
+            application__participant=participant
+        ).select_related('application__study').order_by('-created_at', '-id'),
+    })
+
+
+@staff_required
+def taxonomy(request):
+    return render(request, 'adminpanel/taxonomy.html', {
+        'categories': StudyCategory.objects.order_by('display_order', 'name'),
+        'conditions': Condition.objects.order_by('name'),
+        'category_form': CategoryForm(),
+        'condition_form': ConditionForm(),
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def taxonomy_category_save(request, category_id=None):
+    category = get_object_or_404(StudyCategory, pk=category_id) if category_id else None
+    form = CategoryForm(request.POST or None, instance=category)
+    if request.method == 'POST' and form.is_valid():
+        save_taxonomy_form(form)
+        messages.success(request, 'Category saved.')
+        return redirect('adminpanel:taxonomy')
+    return render(request, 'adminpanel/taxonomy_edit.html', {
+        'heading': 'Edit category' if category else 'Add category',
+        'form': form,
+        'cancel_url': '/panel/taxonomy/',
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def taxonomy_condition_save(request, condition_id=None):
+    condition = get_object_or_404(Condition, pk=condition_id) if condition_id else None
+    form = ConditionForm(request.POST or None, instance=condition)
+    if request.method == 'POST' and form.is_valid():
+        save_taxonomy_form(form)
+        messages.success(request, 'Condition saved.')
+        return redirect('adminpanel:taxonomy')
+    return render(request, 'adminpanel/taxonomy_edit.html', {
+        'heading': 'Edit condition' if condition else 'Add condition',
+        'form': form,
+        'cancel_url': '/panel/taxonomy/',
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def taxonomy_active(request, kind, record_id, action):
+    model = {'category': StudyCategory, 'condition': Condition}.get(kind)
+    if model is None or action not in ('hide', 'show'):
+        raise Http404
+    record = get_object_or_404(model, pk=record_id)
+    if request.method == 'POST':
+        set_record_active(record, action == 'show')
+        messages.success(
+            request,
+            f'{kind.title()} {"shown" if action == "show" else "hidden"}.',
+        )
+        return redirect('adminpanel:taxonomy')
+    return render(request, 'adminpanel/confirmation.html', {
+        'heading': f'{"Show" if action == "show" else "Hide"} {kind}',
+        'warning': f'{record} will be {"shown" if action == "show" else "hidden"}.',
+        'form': None,
+        'cancel_url': '/panel/taxonomy/',
+        'button_text': 'Show' if action == 'show' else 'Hide',
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def taxonomy_delete(request, kind, record_id):
+    model = {'category': StudyCategory, 'condition': Condition}.get(kind)
+    if model is None:
+        raise Http404
+    record = get_object_or_404(model, pk=record_id)
+    if request.method == 'POST':
+        try:
+            delete_unused_record(record)
+        except ValidationError as error:
+            messages.error(request, error.messages[0])
+        else:
+            messages.success(request, f'{kind.title()} deleted.')
+        return redirect('adminpanel:taxonomy')
+    return render(request, 'adminpanel/confirmation.html', {
+        'heading': f'Delete {kind}',
+        'warning': f'Delete {record}?',
+        'form': None,
+        'cancel_url': '/panel/taxonomy/',
+        'button_text': f'Delete {kind}',
     })
