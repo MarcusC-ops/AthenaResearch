@@ -22,7 +22,7 @@ from core.models import (
     StaffProfile,
 )
 from core.validators import normalise_sg_mobile
-from core.services import change_status, submit_application
+from core.services import is_eligible, submit_application
 
 
 def add_months(value, months):
@@ -236,29 +236,34 @@ class Command(BaseCommand):
     def create_full_study_applications(self, studies, regions, conditions):
         applicants = list(
             ParticipantProfile.objects.filter(user__username__startswith='demo')
-            .order_by('id')[:6]
+            .order_by('id')
         )
-        for study_title in ('Digital Puzzles for Older Adults', 'Blood Pressure at Home'):
-            study = studies[study_title]
-            questions = list(study.pre_screen_questions.all())
-            site = study.sites.first()
-            for profile in applicants[:3]:
+        public_studies = [
+            study for study in studies.values() if study.status in (Study.Status.PUBLISHED, Study.Status.FULL)
+        ]
+        added = 0
+        for profile in applicants:
+            for study in public_studies:
+                if added >= 30:
+                    return
                 if Application.objects.filter(participant=profile, study=study).exists():
                     continue
-                if study_title == 'Blood Pressure at Home':
-                    profile.conditions.add(conditions['Hypertension'])
-                    profile.save(update_fields=['updated_at'])
-                answers = {question.pk: question.preferred_answer or question.option_list()[0]
-                           for question in questions}
+                if not is_eligible(profile, study):
+                    continue
+                site = study.sites.first()
+                if site is None:
+                    continue
+                questions = list(study.pre_screen_questions.all())
+                answers = {
+                    question.pk: question.preferred_answer or question.option_list()[0]
+                    for question in questions
+                }
                 application, created = submit_application(
                     profile, study, answers, site.pk,
-                    'flexible', True,
+                    profile.availability or 'flexible', True,
                 )
                 if created:
-                    change_status(application, Application.Status.SHORTLISTED)
-                    change_status(application, Application.Status.SCREENING_SCHEDULED)
-                    change_status(application, Application.Status.SCREENING_PASSED)
-                    change_status(application, Application.Status.ENROLLED)
+                    added += 1
 
     def create_regions(self):
         values = [

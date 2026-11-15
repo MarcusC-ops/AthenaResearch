@@ -1,0 +1,20 @@
+{% extends 'storefront/base_storefront.html' %}
+
+{% block title %}Application · Athena{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+      <div class="card p-4">
+        <p class="mb-2 text-muted">Reference</p>
+        <h1>{{ application.reference }}</h1>
+        <p>{{ application.study.title }}</p>
+        <div class="mt-3">
+          <span class="badge text-bg-light">{{ application.get_status_display }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

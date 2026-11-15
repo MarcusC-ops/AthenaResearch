@@ -1,0 +1,59 @@
+{% extends 'storefront/base_storefront.html' %}
+
+{% block title %}Check eligibility · Athena{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-10">
+      <div class="d-flex justify-content-center gap-3 mb-4">
+        <span class="badge rounded-pill bg-primary px-3 py-2">1</span>
+        <span class="badge rounded-pill bg-light text-dark border px-3 py-2">2</span>
+        <span class="badge rounded-pill bg-light text-dark border px-3 py-2">3</span>
+      </div>
+      <div class="card p-4">
+        <small class="text-uppercase text-muted">Step 1 of 3</small>
+        <h1 class="mt-2">Check eligibility</h1>
+        <div class="mt-4">
+          {% for rule in rules %}
+            <div class="d-flex justify-content-between align-items-center border rounded p-3 mb-3">
+              <div>
+                <strong>{{ rule.label }}</strong>
+                <div class="small text-muted">{{ rule.detail }}</div>
+              </div>
+              <span class="badge {% if rule.met %}text-bg-success{% else %}text-bg-light text-dark{% endif %}">
+                {% if rule.met %}Met{% else %}Not met{% endif %}
+              </span>
+            </div>
+          {% endfor %}
+        </div>
+
+        {% if eligible %}
+          <div class="mt-4">
+            <p class="mb-3">You can continue with this study.</p>
+            <a href="{% url 'storefront:apply_step2' study.slug %}" class="btn btn-primary">Continue</a>
+          </div>
+        {% else %}
+          <div class="mt-4">
+            <h2 class="h4">Not eligible this time</h2>
+            {% if alternatives %}
+              <h3 class="h5 mt-4">Studies you qualify for</h3>
+              <div class="row g-3 mt-2">
+                {% for alternative in alternatives %}
+                  <div class="col-md-6 col-lg-4">
+                    {% include 'storefront/_study_card.html' with study=alternative reasons='' %}
+                  </div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+        {% endif %}
+
+        <div class="mt-4">
+          <a href="{% url 'storefront:study_detail' study.slug %}" class="btn btn-outline-primary">Back</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

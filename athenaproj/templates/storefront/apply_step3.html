@@ -1,0 +1,64 @@
+{% extends 'storefront/base_storefront.html' %}
+
+{% block title %}Review and send your application · Athena{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-10">
+      <div class="d-flex justify-content-center gap-3 mb-4">
+        <span class="badge rounded-pill bg-light text-dark border px-3 py-2">1</span>
+        <span class="badge rounded-pill bg-light text-dark border px-3 py-2">2</span>
+        <span class="badge rounded-pill bg-primary px-3 py-2">3</span>
+      </div>
+      <div class="card p-4">
+        <small class="text-uppercase text-muted">Step 3 of 3</small>
+        <h1 class="mt-2">Review and send your application</h1>
+
+        {% if error_message %}
+          <div class="alert alert-danger mt-3">{{ error_message }}</div>
+        {% endif %}
+
+        <div class="mt-4 border rounded p-3">
+          <h2 class="h4">The study</h2>
+          <p class="mb-1"><strong>{{ study.title }}</strong></p>
+          <p class="mb-0">{{ study.organisation.name }}</p>
+        </div>
+
+        <div class="mt-4 border rounded p-3">
+          <h2 class="h4">Your answers</h2>
+          {% for item in answers %}
+            <div class="border-bottom py-2">
+              <div class="fw-semibold">{{ item.question.text }}</div>
+              <div>{{ item.answer }}</div>
+            </div>
+          {% endfor %}
+          <div class="pt-3">
+            <div><strong>Preferred site:</strong> {{ preferred_site.name }}</div>
+            <div><strong>When you are usually free:</strong> {{ availability }}</div>
+          </div>
+        </div>
+
+        <div class="mt-4 border rounded p-3 bg-light">
+          <p class="mb-0">Applications are scored automatically to help the research team prioritise review. A model never declines an application.</p>
+        </div>
+
+        <form method="post" class="mt-4">
+          {% csrf_token %}
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="consent" id="consent" required>
+            <label class="form-check-label" for="consent">
+              Share my profile and answers with the research team and allow them to contact me *
+            </label>
+          </div>
+          <small class="d-block mb-3">Until the team shortlists you, they see only your answers and a reference code.</small>
+          <div class="d-flex justify-content-between">
+            <a href="{% url 'storefront:apply_step2' study.slug %}" class="btn btn-outline-primary">Back</a>
+            <button type="submit" class="btn btn-primary">{% if study.status == 'full' %}Join the waitlist{% else %}Send application{% endif %}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

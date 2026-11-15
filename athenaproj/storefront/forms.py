@@ -1,7 +1,13 @@
 from django import forms
 from django.utils import timezone
 
-from core.models import Condition, ParticipantProfile, Study, StudyCategory
+from core.models import (
+    Application,
+    Condition,
+    ParticipantProfile,
+    Study,
+    StudyCategory,
+)
 from core.services import list_regions
 
 
@@ -79,6 +85,35 @@ class StudyFilterForm(forms.Form):
         self.fields['region'].choices = [('', 'Anywhere')] + list(
             list_regions().values_list('code', 'name')
         )
+
+
+class ApplyQuestionsForm(forms.Form):
+    def __init__(self, study, *args, **kwargs):
+        self.study = study
+        super().__init__(*args, **kwargs)
+        for question in study.pre_screen_questions.all():
+            self.fields[f'question_{question.pk}'] = forms.ChoiceField(
+                label=question.text,
+                choices=[(option, option) for option in question.option_list()],
+                widget=forms.RadioSelect,
+            )
+        self.fields['preferred_site'] = forms.ModelChoiceField(
+            label='Preferred site',
+            queryset=study.sites.all(),
+        )
+        self.fields['availability'] = forms.ChoiceField(
+            label='When you are usually free',
+            choices=Application.Availability.choices,
+            widget=forms.RadioSelect,
+        )
+
+    def cleaned_answers(self):
+        answers = {}
+        for field_name, value in self.cleaned_data.items():
+            if field_name.startswith('question_'):
+                question_id = int(field_name.split('_', 1)[1])
+                answers[question_id] = value
+        return answers
 
 
 class ProfileForm(forms.ModelForm):
