@@ -1,0 +1,26 @@
+{% extends 'adminpanel/base_panel.html' %}
+{% load athena_filters %}
+{% block content %}
+<h1>Platform insights</h1>
+<form method="get" class="row g-3 mb-4">
+  <div class="col-md-5">{% include 'adminpanel/_form_field.html' with field=form.organisation_id %}</div>
+  <div class="col-md-5">{% include 'adminpanel/_form_field.html' with field=form.study_id %}</div>
+  <div class="col-md-2 d-flex align-items-end"><button class="btn btn-primary rounded-pill mb-3" type="submit">Apply</button></div>
+</form>
+<div class="row g-3 mb-4">
+  <div class="col-lg-6"><div class="card p-3"><h2 class="h5">Recruitment funnel</h2><table class="table table-sm mb-0">{% for label,value in funnel.items %}<tr><td>{{ label|title }}</td><td class="text-end">{{ value }}</td></tr>{% endfor %}</table></div></div>
+  <div class="col-lg-6"><div class="card p-3"><h2 class="h5">Screening pass rate by ML-2 band</h2><table class="table table-sm mb-0">{% for band,data in pass_rates.items %}<tr><td>{{ band|title }}</td><td class="text-end">{% if data.total %}{{ data.passed }} of {{ data.total }} ({{ data.rate }}){% else %}{{ data.rate }}{% endif %}</td></tr>{% endfor %}</table></div></div>
+</div>
+<div class="card p-3 mb-4"><h2 class="h5">Band distribution</h2><table class="table table-sm mb-0">{% for item in distribution %}<tr><td>{{ item.ml2_band|title }}</td><td class="text-end">{{ item.count }}</td></tr>{% empty %}<tr><td>No data</td></tr>{% endfor %}</table></div>
+<div class="row g-3 mb-4">
+  {% for title,values in mix.items %}
+  <div class="col-lg-4"><div class="card p-3"><h2 class="h5">{{ title|title }}</h2>{% for group,counts in values.items %}<h3 class="h6">{{ group|title }}</h3>{% for key,count in counts.items %}<div class="d-flex justify-content-between"><span>{{ key }}</span><span>{{ count|suppress_small }}</span></div>{% endfor %}{% endfor %}</div></div>
+  {% endfor %}
+</div>
+<div class="card p-3">
+  <h2 class="h5">Demand and supply by category</h2>
+  <table class="table mb-0"><thead><tr><th>Category</th><th>Interested participants</th><th>Open studies</th><th>Places left</th></tr></thead>
+  <tbody>{% for item in demand_supply %}<tr><td>{{ item.category.name }}</td><td>{{ item.interested_participants|suppress_small }}</td><td>{{ item.open_studies|suppress_small }}</td><td>{{ item.places_left|suppress_small }}</td></tr>{% endfor %}</tbody></table>
+</div>
+<p class="text-muted small mt-3">Only participants who agreed to anonymised insights are counted. Groups under 5 are not shown.</p>
+{% endblock %}

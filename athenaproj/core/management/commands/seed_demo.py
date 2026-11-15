@@ -369,6 +369,38 @@ class Command(BaseCommand):
                 'moderated_at': None,
             },
         )
+        rejected_profile = ParticipantProfile.objects.get(
+            user__username='demo06@example.com'
+        )
+        rejected_application = self.get_or_submit_application(
+            rejected_profile,
+            memory_study,
+            memory_study.sites.first(),
+        )
+        self.move_application_to(rejected_application, Application.Status.COMPLETED)
+        Review.objects.update_or_create(
+            participant=rejected_profile,
+            study=memory_study,
+            defaults={
+                'rating': 2,
+                'comment': 'The instructions were difficult to follow.',
+                'status': Review.Status.REJECTED,
+                'rejection_reason': 'Please keep comments respectful and specific.',
+                'moderated_by': None,
+                'moderated_at': timezone.now(),
+            },
+        )
+        SupportRequest.objects.update_or_create(
+            application=pending_application,
+            topic=SupportRequest.Topic.OTHER,
+            defaults={
+                'question': 'Can I update my availability?',
+                'reply': 'Please contact the research team through your application.',
+                'status': SupportRequest.Status.ANSWERED,
+                'replied_by': None,
+                'replied_at': timezone.now(),
+            },
+        )
         self.create_memory_study_payouts(memory_study)
 
     def create_memory_study_payouts(self, memory_study):

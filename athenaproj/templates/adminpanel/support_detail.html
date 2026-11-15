@@ -1,0 +1,24 @@
+{% extends 'adminpanel/base_panel.html' %}
+{% block content %}
+<div class="row g-4">
+<div class="col-lg-7">
+  <h1>{{ support_request.get_topic_display }}</h1>
+  <span class="badge text-bg-light">{{ support_request.get_status_display }}</span>
+  <p class="mt-3">{{ support_request.question }}</p>
+  <div class="small text-muted mb-3">{{ support_request.created_at|date:"j M Y" }}</div>
+  {% if support_request.reply %}
+    <p>{{ support_request.reply }}</p><div class="small text-muted">Athena team · {{ support_request.replied_at|date:"j M Y" }}</div>
+  {% else %}
+    <form method="post">{% csrf_token %}
+      {% include 'adminpanel/_form_field.html' with field=form.reply %}
+      <button class="btn btn-primary rounded-pill" type="submit">Send reply</button>
+    </form>
+  {% endif %}
+</div>
+<aside class="col-lg-5">
+  <div class="card p-3 mb-3"><h2 class="h5">Application</h2><p>{{ application.reference }} · {{ application.study.title }}</p><p>{{ application.get_status_display }}</p><p>{{ application.participant.user.get_full_name }}<br>{{ application.participant.user.email }}</p><h3 class="h6">Latest updates</h3>{% for event in events %}<div class="small">{{ event.get_to_status_display }} · {{ event.created_at|date:"j M Y" }}</div>{% endfor %}</div>
+  <div class="card p-3 mb-3"><h2 class="h5">Visits</h2><p class="mb-0">{{ visits_attended }} of {{ application.study.total_visits }} attended</p></div>
+  <div class="card p-3"><h2 class="h5">Payouts</h2>{% for payout in payouts %}<p class="mb-1">S${{ payout.amount|floatformat:2 }} · {{ payout.get_status_display }}{% if payout.reference %} · {{ payout.reference }}{% endif %}</p>{% empty %}<p class="mb-0">No payouts yet.</p>{% endfor %}</div>
+</aside>
+</div>
+{% endblock %}

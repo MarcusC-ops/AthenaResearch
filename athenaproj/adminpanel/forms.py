@@ -478,3 +478,41 @@ class CoordinatorWithdrawForm(forms.Form):
         label='Reason to show participant',
         widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
     )
+
+
+class PayoutRejectForm(ReasonForm):
+    pass
+
+
+class ReviewRejectForm(ReasonForm):
+    pass
+
+
+class SupportReplyForm(forms.Form):
+    reply = forms.CharField(
+        label='Your reply',
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 5}),
+        help_text='The participant sees this on their application page.',
+    )
+
+
+class PlatformInsightsFilterForm(forms.Form):
+    organisation_id = forms.ModelChoiceField(
+        queryset=Organisation.objects.none(),
+        required=False,
+        label='Organisation',
+        empty_label='All organisations',
+        widget=forms.Select(attrs={'class': 'form-select'}),
+    )
+    study_id = forms.ModelChoiceField(
+        queryset=Study.objects.none(),
+        required=False,
+        label='Study',
+        empty_label='All studies',
+        widget=forms.Select(attrs={'class': 'form-select'}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['organisation_id'].queryset = Organisation.objects.order_by('name')
+        self.fields['study_id'].queryset = Study.objects.order_by('title')

@@ -1,0 +1,33 @@
+{% extends 'adminpanel/base_panel.html' %}
+{% block title %}Payouts · Athena{% endblock %}
+{% block content %}
+<h1>Payouts</h1>
+<nav class="study-status-tabs mb-4">
+  <a class="badge {% if status == 'requested' %}text-bg-primary{% else %}text-bg-light text-dark{% endif %}" href="?status=requested">Requested</a>
+  <a class="badge {% if status == 'paid' %}text-bg-primary{% else %}text-bg-light text-dark{% endif %}" href="?status=paid">Paid</a>
+  <a class="badge {% if status == 'rejected' %}text-bg-primary{% else %}text-bg-light text-dark{% endif %}" href="?status=rejected">Rejected</a>
+</nav>
+<form method="post">
+  {% csrf_token %}
+  <div class="card p-3">
+    <table class="table align-middle mb-0">
+      <thead><tr><th></th><th>Participant</th><th>Study</th><th>Organisation</th><th>Amount</th><th>Visits counted</th><th>Requested on</th>{% if status == 'requested' %}<th></th>{% elif status == 'paid' %}<th>Reference</th><th>Paid on</th>{% else %}<th>Reason</th>{% endif %}</tr></thead>
+      <tbody>
+      {% for payout in payouts %}
+        <tr>
+          <td>{% if status == 'requested' %}<input type="checkbox" name="ids" value="{{ payout.pk }}">{% endif %}</td>
+          <td>{{ payout.application.participant.code }}</td>
+          <td>{{ payout.application.study.title }}</td>
+          <td>{{ payout.application.study.organisation.name }}</td>
+          <td>S${{ payout.amount|floatformat:2 }}</td>
+          <td>{{ payout.visits_counted }}</td>
+          <td>{{ payout.created_at|date:"j M Y" }}</td>
+          {% if status == 'requested' %}<td><a href="{% url 'adminpanel:payout_reject' payout.pk %}">Reject</a></td>{% elif status == 'paid' %}<td>{{ payout.reference }}</td><td>{{ payout.paid_at|date:"j M Y" }}</td>{% else %}<td>{{ payout.rejection_reason }}</td>{% endif %}
+        </tr>
+      {% empty %}<tr><td colspan="9">No payouts here.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if status == 'requested' %}<button class="btn btn-primary rounded-pill mt-3" type="submit">Pay selected</button>{% endif %}
+</form>
+{% endblock %}

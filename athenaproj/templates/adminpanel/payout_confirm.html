@@ -1,0 +1,11 @@
+{% extends 'adminpanel/base_panel.html' %}
+{% block content %}
+<h1>Pay selected payouts</h1>
+<p>Pay {{ payouts|length }} payout{{ payouts|length|pluralize }} totalling S${{ total|floatformat:2 }}?</p>
+<p>This records the payments in Athena. No money is sent.</p>
+<form method="post" action="{% url 'adminpanel:payout_pay' %}" class="d-inline">
+  {% csrf_token %}{% for payout in payouts %}<input type="hidden" name="ids" value="{{ payout.pk }}">{% endfor %}
+  <button class="btn btn-primary rounded-pill" type="submit">Pay now</button>
+</form>
+<a class="btn btn-outline-dark rounded-pill" href="{% url 'adminpanel:payouts' %}">Cancel</a>
+{% endblock %}

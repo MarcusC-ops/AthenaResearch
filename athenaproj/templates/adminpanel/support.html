@@ -1,0 +1,14 @@
+{% extends 'adminpanel/base_panel.html' %}
+{% block content %}
+<h1>Support</h1>
+<nav class="study-status-tabs mb-4">
+  <a class="badge {% if status == 'open' %}text-bg-primary{% else %}text-bg-light text-dark{% endif %}" href="?status=open">Waiting for a reply</a>
+  <a class="badge {% if status == 'answered' %}text-bg-primary{% else %}text-bg-light text-dark{% endif %}" href="?status=answered">Answered</a>
+</nav>
+<div class="card p-3"><table class="table mb-0">
+<thead><tr><th>Topic</th><th>Application</th><th>Study</th><th>Participant</th><th>Asked on</th></tr></thead>
+<tbody>{% for item in support_requests %}<tr>
+<td><a href="{% url 'adminpanel:support_detail' item.pk %}">{{ item.get_topic_display }}</a></td><td>{{ item.application.reference }}</td><td>{{ item.application.study.title }}</td><td>{{ item.application.participant.code }}</td><td>{{ item.created_at|date:"j M Y" }}</td>
+</tr>{% empty %}<tr><td colspan="5">No support questions here.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endblock %}

@@ -1,0 +1,10 @@
+{% extends 'adminpanel/base_panel.html' %}
+{% block content %}
+<h1>Reject payout</h1>
+<p>S${{ payout.amount|floatformat:2 }} for {{ payout.application.study.title }}</p>
+<form method="post">
+  {% csrf_token %}{% include 'adminpanel/_form_field.html' with field=form.reason %}
+  <button class="btn btn-primary rounded-pill" type="submit">Reject payout</button>
+  <a class="btn btn-outline-dark rounded-pill" href="{% url 'adminpanel:payouts' %}">Cancel</a>
+</form>
+{% endblock %}

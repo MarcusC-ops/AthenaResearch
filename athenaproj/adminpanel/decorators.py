@@ -14,6 +14,15 @@ def staff_required(view):
     return wrapped
 
 
+def panel_staff_or_coordinator_required(view):
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if user_role(request.user) not in ('coordinator', 'staff', 'admin'):
+            raise PermissionDenied
+        return view(request, *args, **kwargs)
+    return wrapped
+
+
 def admin_required(view):
     @wraps(view)
     def wrapped(request, *args, **kwargs):
