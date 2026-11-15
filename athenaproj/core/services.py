@@ -441,6 +441,10 @@ def submit_study_for_review(study, user):
 def approve_study(study, user):
     if study.status not in (Study.Status.PENDING_REVIEW, Study.Status.PAUSED):
         raise ValidationError('This study cannot be approved.')
+    if not study.organisation.is_active:
+        raise ValidationError(
+            'This organisation is switched off. Switch it back on before approving its studies.'
+        )
     if not all(check.passed for check in run_compliance_checks(study)):
         raise ValidationError('Every check must pass before you approve.')
     study.status = Study.Status.PUBLISHED
@@ -502,8 +506,10 @@ def update_study_as_staff(form, user):
     study = form.instance
     if not study.pk:
         raise ValidationError('Only existing studies can be edited by staff.')
-    study = Study.objects.select_for_update().get(pk=study.pk)
-    form.instance = study
+    # Lock the row for this transaction, but keep saving form.instance: it
+    # already holds the validated changes, and swapping in a fresh copy from
+    # the database would silently discard every edited field.
+    Study.objects.select_for_update().get(pk=study.pk)
     updated = form.save(commit=False)
     updated.last_edited_by = user
     updated.save()
@@ -2092,6 +2098,8 @@ def pay_payouts(ids, user):
     )
     if len(payouts) != len(set(ids)):
         raise ValidationError('One or more selected payouts could not be found.')
+    if not payouts:
+        raise ValidationError('Select at least one payout.')
 
     now = timezone.now()
     total = Decimal('0.00')
@@ -2099,7 +2107,7 @@ def pay_payouts(ids, user):
         if payout.status != Payout.Status.REQUESTED:
             raise ValidationError(
                 f'{payout.reference or payout.pk} could not be paid: '
-                'the amount is more than the visits have earned.'
+                'it has already been paid or rejected.'
             )
         other_total = payout.application.payouts.filter(
             status__in=[Payout.Status.PAID, Payout.Status.REQUESTED],
@@ -2113,7 +2121,7 @@ def pay_payouts(ids, user):
 
     for payout in payouts:
         payout.status = Payout.Status.PAID
-        payout.reference = next_payout_reference(now.year)
+        payout.reference = next_payout_reference(timezone.localdate().year)
         payout.paid_by = user
         payout.paid_at = now
         payout.save(update_fields=[
@@ -2282,65 +2290,64 @@ def band_pass_rates(qs):
 
 
 def band_distribution(qs):
-    """Return application counts by ML-2 band."""
-    return list(
-        qs.values('ml2_band').annotate(count=Count('id')).order_by('ml2_band')
-    )
+    """Return application counts by ML-2 band, highest band first.
+
+    Each item also carries the band's share of all applications as a whole
+    percentage, for drawing proportional bars.
+    """
+    counts = dict(qs.values_list('ml2_band').annotate(count=Count('id')))
+    total = sum(counts.values())
+    return [
+        {
+            'ml2_band': band,
+            'label': label,
+            'count': counts[band],
+            'percent': round(counts[band] * 100 / total),
+        }
+        for band, label in Application.Band.choices
+        if counts.get(band)
+    ]
 
 
 def applicant_mix(qs):
-    """Return age/sex/region counts for applied vs enrolled with insights consent."""
-    result = {
-        'age_bands': {},
-        'sex': {},
-        'regions': {},
+    """Return age/sex/region counts for applied vs enrolled with insights consent.
+
+    Counts are of distinct people, not applications: someone who applied to
+    several studies must count once, otherwise a group of one or two people
+    could reach five and slip past small-number suppression. "Enrolled"
+    includes participants who have since completed the study.
+    """
+    band_order = ['21 to 29', '30 to 39', '40 to 49', '50 to 59', '60 and over']
+    result = {'age_bands': {}, 'sex': {}, 'regions': {}}
+    groups = {
+        'applied': qs,
+        'enrolled': qs.filter(
+            status__in=[Application.Status.ENROLLED, Application.Status.COMPLETED]
+        ),
     }
+    for label, applications in groups.items():
+        profiles = ParticipantProfile.objects.filter(
+            pk__in=applications.filter(
+                participant__consent_insights=True
+            ).values('participant_id'),
+        ).select_related('region')
 
-    for label in ['applied', 'enrolled']:
-        if label == 'applied':
-            filtered_qs = qs
-        else:
-            filtered_qs = qs.filter(status=Application.Status.ENROLLED)
+        age_counts = defaultdict(int)
+        sex_counts = defaultdict(int)
+        region_counts = defaultdict(int)
+        for profile in profiles:
+            if profile.age is not None:
+                age_counts[age_band(profile.age)] += 1
+            if profile.sex:
+                sex_counts[profile.sex] += 1
+            if profile.region:
+                region_counts[profile.region.name] += 1
 
-        filtered_qs = filtered_qs.filter(
-            participant__consent_insights=True
-        )
-
-        age_bands_raw = filtered_qs.values_list(
-            'participant__user__first_name',
-            'participant__date_of_birth',
-        )
-        age_band_counts = defaultdict(int)
-        for _, dob in age_bands_raw:
-            if dob:
-                age = age_band(
-                    (timezone.now().date() - dob).days // 365
-                )
-                age_band_counts[age] += 1
-
-        if label not in result['age_bands']:
-            result['age_bands'][label] = {}
-        result['age_bands'][label] = dict(age_band_counts)
-
-        sex_counts = filtered_qs.values('participant__sex').annotate(
-            count=Count('id')
-        ).order_by('participant__sex')
-        if label not in result['sex']:
-            result['sex'][label] = {}
-        result['sex'][label] = {
-            item['participant__sex']: item['count'] for item in sex_counts
+        result['age_bands'][label] = {
+            band: age_counts[band] for band in band_order if band in age_counts
         }
-
-        region_counts = filtered_qs.values(
-            'participant__region__name'
-        ).annotate(count=Count('id')).order_by('participant__region__name')
-        if label not in result['regions']:
-            result['regions'][label] = {}
-        result['regions'][label] = {
-            item['participant__region__name']: item['count']
-            for item in region_counts if item['participant__region__name']
-        }
-
+        result['sex'][label] = dict(sorted(sex_counts.items()))
+        result['regions'][label] = dict(sorted(region_counts.items()))
     return result
 
 
@@ -2437,9 +2444,18 @@ def coordinator_dashboard(user):
         status=Payout.Status.REQUESTED,
     ).count()
 
+    # ml2_band is a string, so sort on an explicit rank: high, medium, low, unscored.
     under_review_apps = applications_qs.filter(
         status=Application.Status.UNDER_REVIEW,
-    ).order_by('-ml2_band', '-created_at', '-id')[:5]
+    ).annotate(
+        band_rank=Case(
+            When(ml2_band=Application.Band.HIGH, then=Value(0)),
+            When(ml2_band=Application.Band.MEDIUM, then=Value(1)),
+            When(ml2_band=Application.Band.LOW, then=Value(2)),
+            default=Value(3),
+            output_field=IntegerField(),
+        ),
+    ).order_by('band_rank', '-created_at', '-id')[:5]
 
     screening_list = Appointment.objects.filter(
         application__study__in=studies,

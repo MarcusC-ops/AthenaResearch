@@ -4,6 +4,7 @@ from django.contrib.auth.views import LogoutView
 from django.http import HttpResponseNotAllowed
 from django.shortcuts import redirect, render
 
+from core.redirects import safe_next_url
 from core.services import register_participant, register_researcher, sign_in_check, user_role
 
 from .forms import ParticipantRegistrationForm, ResearcherRegistrationForm
@@ -38,7 +39,9 @@ def register(request):
 
 def sign_in(request):
     error = None
-    next_url = request.GET.get('next') or request.POST.get('next') or ''
+    next_url = safe_next_url(
+        request, request.GET.get('next') or request.POST.get('next') or ''
+    )
     if request.method == 'POST':
         user, error = sign_in_check(
             request.POST.get('email', ''), request.POST.get('password', '')

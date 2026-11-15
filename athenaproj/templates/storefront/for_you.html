@@ -6,7 +6,11 @@
 <div class="container py-5">
   <small class="text-uppercase">For you</small>
   <h1>Studies picked for you</h1>
-  <p>Ordered by what we think interests you most, then by sites near you. You meet the basic criteria for every study on this page.</p>
+  {% if mode == 'personal' %}
+    <p>Ordered by what we think interests you most, then by sites near you. You meet the basic criteria for every study on this page.</p>
+  {% else %}
+    <p>Popular studies on Athena. Open a study to check whether you can apply.</p>
+  {% endif %}
   {% if notice %}
     <div class="alert alert-info mt-4">
       {{ notice }}

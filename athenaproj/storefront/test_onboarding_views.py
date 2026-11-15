@@ -85,7 +85,9 @@ class OnboardingViewsTests(TestCase):
     def test_06_saved_profile_is_shown_on_both_pages(self):
         self.client.force_login(self.aisyah)
         self.client.post('/onboarding/', self.valid_form())
-        self.assertContains(self.client.get('/account/'), 'BMI 20.3')
+        self.assertContains(
+            self.client.get('/account/'), '<dt>BMI</dt><dd>20.3</dd>', html=True,
+        )
         self.assertContains(self.client.get('/account/'), 'Edit profile')
         self.assertContains(self.client.get('/onboarding/'), 'Edit your profile')
 

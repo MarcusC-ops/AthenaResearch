@@ -1,3 +1,4 @@
+from datetime import datetime
 from io import StringIO
 
 from django.contrib import messages
@@ -18,6 +19,7 @@ from core.models import (
     Payout, Site, Study, StudyCategory, SupportRequest, Review,
     PredictionLog,
 )
+from core.redirects import safe_next_url
 from core.services import (
     InvalidStatusMove,
     age_band,
@@ -114,6 +116,7 @@ from .forms import (
     PlatformInsightsFilterForm,
     PreScreenQuestionForm,
     ReasonForm,
+    ReviewRejectForm,
     ScreeningOutcomeForm,
     ScreeningScheduleForm,
     SupportReplyForm,
@@ -143,7 +146,9 @@ def dashboard(request):
 
 def panel_login(request):
     error = None
-    next_url = request.GET.get('next') or request.POST.get('next') or ''
+    next_url = safe_next_url(
+        request, request.GET.get('next') or request.POST.get('next') or ''
+    )
     if request.method == 'POST':
         user, error = sign_in_check(
             request.POST.get('email', ''), request.POST.get('password', '')
@@ -533,6 +538,16 @@ def _panel_application_or_404(request, application_id):
         raise Http404
 
 
+def _numeric_ids(values):
+    """Keep only whole-number ids, so tampered form values cannot crash a query."""
+    return [int(value) for value in values if str(value).isdigit()]
+
+
+def _numeric_id(value):
+    ids = _numeric_ids([value])
+    return ids[0] if ids else None
+
+
 def _report_action_error(request, error):
     if isinstance(error, ValidationError):
         messages.error(request, error.messages[0])
@@ -854,7 +869,9 @@ def participation_detail(request, application_id):
                     )
                     messages.success(request, 'Visit date saved.')
                 except ValidationError as e:
-                    messages.error(request, str(e))
+                    _report_action_error(request, e)
+            else:
+                messages.error(request, 'Enter a valid date and time for the visit.')
             return redirect('adminpanel:participation_detail', application_id=application.pk)
 
         elif action == 'mark_attended':
@@ -867,8 +884,8 @@ def participation_detail(request, application_id):
             try:
                 mark_visit(appointment, True, request.user)
                 messages.success(request, 'Visit marked as attended.')
-            except ValidationError as e:
-                messages.error(request, str(e))
+            except (ValidationError, InvalidStatusMove) as e:
+                _report_action_error(request, e)
             return redirect('adminpanel:participation_detail', application_id=application.pk)
 
         elif action == 'mark_missed':
@@ -881,24 +898,24 @@ def participation_detail(request, application_id):
             try:
                 mark_visit(appointment, False, request.user)
                 messages.success(request, 'Visit marked as missed.')
-            except ValidationError as e:
-                messages.error(request, str(e))
+            except (ValidationError, InvalidStatusMove) as e:
+                _report_action_error(request, e)
             return redirect('adminpanel:participation_detail', application_id=application.pk)
 
         elif action == 'request_payout':
             try:
                 request_payout(application, request.user)
                 messages.success(request, 'Payout requested.')
-            except ValidationError as e:
-                messages.error(request, str(e))
+            except (ValidationError, InvalidStatusMove) as e:
+                _report_action_error(request, e)
             return redirect('adminpanel:participation_detail', application_id=application.pk)
 
         elif action == 'complete':
             try:
                 complete_participation(application, request.user)
                 messages.success(request, 'Participant marked as completed.')
-            except ValidationError as e:
-                messages.error(request, str(e))
+            except (ValidationError, InvalidStatusMove) as e:
+                _report_action_error(request, e)
             return redirect('adminpanel:participation_detail', application_id=application.pk)
 
         elif action == 'withdraw':
@@ -915,6 +932,7 @@ def participation_detail(request, application_id):
         'visits': visits,
         'due_now': due_now,
         'payouts': payouts,
+        'now': timezone.now(),
     })
 
 
@@ -937,8 +955,8 @@ def participation_withdraw(request, application_id):
                     form.cleaned_data['reason'],
                 )
                 messages.success(request, 'Participant withdrawn.')
-            except ValidationError as e:
-                messages.error(request, str(e))
+            except (ValidationError, InvalidStatusMove) as e:
+                _report_action_error(request, e)
             return redirect('adminpanel:participation_detail', application_id=application.pk)
     else:
         form = CoordinatorWithdrawForm()
@@ -947,6 +965,50 @@ def participation_withdraw(request, application_id):
         'application': application,
         'form': form,
     })
+
+
+FUNNEL_LABELS = [
+    ('applied', 'Applied'),
+    ('passed_pre_screen', 'Passed pre-screen'),
+    ('shortlisted', 'Shortlisted'),
+    ('screened', 'Screened'),
+    ('passed_screening', 'Passed screening'),
+    ('enrolled', 'Enrolled'),
+    ('completed', 'Completed'),
+]
+
+
+def _funnel_rows(funnel):
+    applied = funnel.get('applied') or 0
+    return [
+        {
+            'label': label,
+            'count': funnel.get(key, 0),
+            'percent': round(funnel.get(key, 0) * 100 / applied) if applied else 0,
+        }
+        for key, label in FUNNEL_LABELS
+    ]
+
+
+def _mix_sections(mix):
+    """Turn applicant_mix() output into labelled rows of applied/enrolled counts."""
+    sex_labels = dict(ParticipantProfile.Sex.choices)
+    sections = []
+    for key, title in (('age_bands', 'Age band'), ('sex', 'Sex'), ('regions', 'Region')):
+        applied = mix[key].get('applied', {})
+        enrolled = mix[key].get('enrolled', {})
+        sections.append({
+            'title': title,
+            'rows': [
+                {
+                    'label': sex_labels.get(group, group) if key == 'sex' else group,
+                    'applied': applied.get(group, 0),
+                    'enrolled': enrolled.get(group, 0),
+                }
+                for group in applied
+            ],
+        })
+    return sections
 
 
 @panel_staff_or_coordinator_required
@@ -964,6 +1026,8 @@ def insights(request):
             data = platform_insights()
         return render(request, 'adminpanel/platform_insights.html', {
             **data,
+            'funnel_rows': _funnel_rows(data['funnel']),
+            'mix_sections': _mix_sections(data['mix']),
             'form': form,
             'demand_supply': demand_supply_by_category(),
         })
@@ -976,13 +1040,15 @@ def insights(request):
 
     applications_qs = Application.objects.filter(study__in=studies)
 
-    study_id = request.GET.get('study_id')
-    if study_id:
-        try:
-            study = Study.objects.get(pk=study_id, organisation=org)
+    # Keep the id as an int so the template can re-select it in the dropdown.
+    study_id = request.GET.get('study_id', '')
+    study_id = int(study_id) if study_id.isdigit() else None
+    if study_id is not None:
+        study = Study.objects.filter(pk=study_id, organisation=org).first()
+        if study is None:
+            study_id = None
+        else:
             applications_qs = applications_qs.filter(study=study)
-        except Study.DoesNotExist:
-            pass
 
     funnel = study_funnel(applications_qs)
     pass_rates = band_pass_rates(applications_qs)
@@ -1010,7 +1076,7 @@ def payouts(request):
         'application__study__organisation',
     ).order_by('-created_at', '-id')
     if request.method == 'POST':
-        ids = request.POST.getlist('ids')
+        ids = _numeric_ids(request.POST.getlist('ids'))
         if not ids:
             messages.error(request, 'Select at least one payout.')
             return redirect('adminpanel:payouts')
@@ -1029,7 +1095,9 @@ def payouts(request):
 @staff_required
 @require_http_methods(['GET', 'POST'])
 def payout_pay(request):
-    ids = request.POST.getlist('ids') if request.method == 'POST' else request.GET.getlist('ids')
+    ids = _numeric_ids(
+        request.POST.getlist('ids') if request.method == 'POST' else request.GET.getlist('ids')
+    )
     if request.method == 'POST':
         try:
             count, total = pay_payouts(ids, request.user)
@@ -1081,7 +1149,7 @@ def reviews(request):
         'participant', 'study',
     ).order_by('-created_at', '-id')
     if request.method == 'POST':
-        review = get_object_or_404(Review, pk=request.POST.get('review_id'))
+        review = get_object_or_404(Review, pk=_numeric_id(request.POST.get('review_id')))
         try:
             approve_review(review, request.user)
         except ValidationError as error:
@@ -1446,18 +1514,20 @@ def organisation_users(request, organisation_id):
     form = CoordinatorForm(request.POST or None)
     if request.method == 'POST':
         action = request.POST.get('action', '')
-        if action == 'add' and form.is_valid():
-            try:
-                user = add_coordinator(organisation, form)
-            except ValidationError as error:
-                form.add_error('temporary_password', error)
-            else:
-                messages.success(request, 'Coordinator added.')
-                return redirect('adminpanel:organisation_users', organisation_id=organisation.pk)
+        if action == 'add':
+            # An invalid form falls through to re-render with its errors.
+            if form.is_valid():
+                try:
+                    add_coordinator(organisation, form)
+                except ValidationError as error:
+                    form.add_error('temporary_password', error)
+                else:
+                    messages.success(request, 'Coordinator added.')
+                    return redirect('adminpanel:organisation_users', organisation_id=organisation.pk)
         elif action in ('approve', 'switch_off', 'switch_on'):
             user = get_object_or_404(
                 coordinators,
-                user_id=request.POST.get('user_id'),
+                user_id=_numeric_id(request.POST.get('user_id')),
             ).user
             try:
                 if action == 'approve':
@@ -1606,6 +1676,13 @@ def taxonomy_delete(request, kind, record_id):
 def _model_monitor_card(name, title):
     card = model_card(name)
     card['title'] = title
+    # Metadata files store trained_at as a date or a full ISO timestamp.
+    try:
+        trained = datetime.fromisoformat(str(card.get('trained_at', '')))
+    except ValueError:
+        pass
+    else:
+        card['trained_at'] = f'{trained.day} {trained:%b %Y}'
     card['stats'] = prediction_stats(card.get('model_name', name))
     return card
 
@@ -1645,9 +1722,22 @@ def ml_monitor(request):
     ]
     overridden, scored, override_percentage = override_rate()
     settings = get_settings()
-    recent_predictions = PredictionLog.objects.select_related(
+    recent_predictions = list(PredictionLog.objects.select_related(
         'participant', 'application'
-    ).order_by('-created_at', '-id')[:20]
+    ).order_by('-created_at', '-id')[:20])
+    for prediction in recent_predictions:
+        output = prediction.output or {}
+        if prediction.model_name == PredictionLog.ModelName.ML1:
+            top = (output.get('top_three') or [{}])[0].get('category')
+            prediction.result_label = categories.get(top, top) or '-'
+        else:
+            band = output.get('band')
+            label = Application.Band(band).label if band in Application.Band.values else '-'
+            probability = output.get('probability')
+            if isinstance(probability, (int, float)):
+                # Stored as 0 to 1; show it as a percentage.
+                label = f'{label} ({round(probability * 100)}%)'
+            prediction.result_label = label
     return render(request, 'adminpanel/ml_monitor.html', {
         'ml1': ml1,
         'ml2': ml2,

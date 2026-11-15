@@ -3,6 +3,7 @@
 import calendar
 import os
 from datetime import datetime, time, timedelta
+from decimal import Decimal
 
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import Group, User
@@ -63,6 +64,7 @@ class Command(BaseCommand):
         self.create_full_study_applications(studies, regions, conditions)
         self.create_after_sales(studies, sites)
         self.create_shortlists(studies)
+        self.record_passed_screenings()
 
         for label, model in (
             ('Regions', Region),
@@ -135,9 +137,7 @@ class Command(BaseCommand):
                 }
                 if email == 'aisyah@example.com':
                     profile_defaults.update(
-                        date_of_birth=timezone.localdate().replace(
-                            year=timezone.localdate().year - 24
-                        ),
+                        date_of_birth=add_months(timezone.localdate(), -12 * 24),
                         sex='female',
                         region=regions['W'],
                         employment='student',
@@ -156,9 +156,7 @@ class Command(BaseCommand):
                     )
                 else:
                     profile_defaults.update(
-                        date_of_birth=timezone.localdate().replace(
-                            year=timezone.localdate().year - 67
-                        ),
+                        date_of_birth=add_months(timezone.localdate(), -12 * 67),
                         sex='male',
                         region=regions['NE'],
                         employment='retired',
@@ -226,9 +224,7 @@ class Command(BaseCommand):
                     'terms_accepted_at': user.date_joined or timezone.now(),
                 },
             )
-            profile.date_of_birth = timezone.localdate().replace(
-                year=timezone.localdate().year - (21 + index % 45)
-            )
+            profile.date_of_birth = add_months(timezone.localdate(), -12 * (21 + index % 45))
             profile.sex = 'female' if index % 2 else 'male'
             profile.region = regions[list(regions)[index % len(regions)]]
             profile.employment = 'full_time'
@@ -404,8 +400,37 @@ class Command(BaseCommand):
         self.create_memory_study_payouts(memory_study)
 
     def create_memory_study_payouts(self, memory_study):
-        """Add payouts for Memory Games study: 2 paid, 1 requested."""
+        """Add payouts for Memory Games study: 2 paid, 1 requested.
+
+        Completed participants first get their visits recorded as attended, so
+        each payout is backed by earned compensation and staff can pay it.
+        """
         now = timezone.now()
+        # Freshly created studies still hold the seeded string value.
+        visit_value = (
+            Decimal(str(memory_study.compensation_amount)) / int(memory_study.total_visits)
+        ).quantize(Decimal('0.01'))
+        for application in memory_study.applications.filter(
+            status=Application.Status.COMPLETED,
+        ):
+            site = application.preferred_site
+            for number in range(1, memory_study.total_visits + 1):
+                attended_on = timezone.localdate() - timedelta(
+                    days=14 * (memory_study.total_visits - number + 3)
+                )
+                Appointment.objects.update_or_create(
+                    application=application,
+                    kind=Appointment.Kind.VISIT,
+                    visit_number=number,
+                    defaults={
+                        'site': site,
+                        'scheduled_for': timezone.make_aware(
+                            datetime.combine(attended_on, time(10, 0)),
+                            timezone.get_current_timezone(),
+                        ),
+                        'status': Appointment.Status.ATTENDED,
+                    },
+                )
         for demo_num in [1, 2, 3]:
             profile = ParticipantProfile.objects.get(
                 user__username=f'demo{demo_num:02d}@example.com'
@@ -419,7 +444,7 @@ class Command(BaseCommand):
                     application=application,
                     status=Payout.Status.PAID,
                     defaults={
-                        'amount': '30.00',
+                        'amount': visit_value,
                         'visits_counted': 1,
                         'reference': f'PN-2026-00000{demo_num + 1}',
                         'requested_by': None,
@@ -429,11 +454,12 @@ class Command(BaseCommand):
                     },
                 )
             else:
-                existing = Payout.objects.filter(application=application, status=Payout.Status.REQUESTED).exists()
+                # Any payout means the request was already seeded (and maybe paid since).
+                existing = application.payouts.exists()
                 if not existing:
                     Payout.objects.create(
                         application=application,
-                        amount='30.00',
+                        amount=visit_value,
                         visits_counted=1,
                         status=Payout.Status.REQUESTED,
                         requested_by=None,
@@ -612,6 +638,7 @@ class Command(BaseCommand):
             return
         if application.status == Application.Status.SCREENING_SCHEDULED:
             record_screening_outcome(application, True, coordinator)
+            self._backdate_attended_screening(application, site)
         if target_status == Application.Status.SCREENING_PASSED:
             return
         if target_status == Application.Status.WAITLISTED:
@@ -620,6 +647,25 @@ class Command(BaseCommand):
             enrol_applicant(application, coordinator)
         elif target_status != Application.Status.UNDER_REVIEW:
             raise ValueError(f'Cannot seed {target_status} from {application.status}.')
+
+    def _backdate_attended_screening(self, application, site):
+        """Move a screening the seed has just recorded as attended into the past.
+
+        schedule_screening() only accepts future times, so without this the
+        demo shows screenings marked attended on a date that has not happened.
+        """
+        appointment = application.appointments.filter(
+            kind=Appointment.Kind.SCREENING,
+        ).order_by('-created_at', '-pk').first()
+        held_at = timezone.now() - timedelta(days=7)
+        appointment.scheduled_for = held_at
+        appointment.save(update_fields=['scheduled_for', 'updated_at'])
+        application.status_events.filter(
+            to_status=Application.Status.SCREENING_SCHEDULED,
+        ).update(note=(
+            f'Screening on {timezone.localtime(held_at).strftime("%d %b %Y, %I:%M %p")} '
+            f'at {site.name}'
+        ))
 
     def get_or_submit_application(
         self, profile, study, site, disqualify=False
@@ -675,6 +721,27 @@ class Command(BaseCommand):
                 actor_role='coordinator',
                 note='Demonstration application progress.',
             )
+
+    def record_passed_screenings(self):
+        """Store the screening outcome for applications seeded past screening.
+
+        move_application_to() uses change_status(), which only moves the
+        status. Without the outcome, the recruitment funnel and the pass-rate
+        insights would not count these applicants as screened.
+        """
+        applications = Application.objects.filter(
+            status_events__to_status=Application.Status.SCREENING_PASSED,
+            screening_outcome='',
+        ).distinct()
+        for application in applications:
+            passed_at = application.status_events.filter(
+                to_status=Application.Status.SCREENING_PASSED
+            ).order_by('created_at', 'pk').first().created_at
+            application.screening_outcome = Application.ScreeningOutcome.PASSED
+            application.outcome_recorded_at = passed_at
+            application.save(update_fields=[
+                'screening_outcome', 'outcome_recorded_at', 'updated_at',
+            ])
 
     def create_aisyah_after_sales(self, application, site):
         now = timezone.now()
@@ -743,18 +810,15 @@ class Command(BaseCommand):
                 'rejection_reason': '',
             },
         )
-        Payout.objects.update_or_create(
-            application=application,
-            status=Payout.Status.REQUESTED,
-            defaults={
-                'amount': '70.00',
-                'visits_counted': 3,
-                'requested_by': None,
-                'paid_by': None,
-                'paid_at': None,
-                'rejection_reason': '',
-            },
-        )
+        # Only seed the open request once. After staff pay or reject it, a
+        # re-run must not request the same compensation a second time.
+        if not application.payouts.exclude(reference='PN-2026-000001').exists():
+            Payout.objects.create(
+                application=application,
+                amount='70.00',
+                visits_counted=3,
+                status=Payout.Status.REQUESTED,
+            )
         SupportRequest.objects.get_or_create(
             application=application,
             topic=SupportRequest.Topic.COMPENSATION,

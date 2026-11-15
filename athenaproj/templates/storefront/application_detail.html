@@ -14,9 +14,11 @@
     </div>
     <span class="badge text-bg-light">{{ status_label }}</span>
   </div>
-  <div class="text-end mb-4">
-    <a href="{% url 'storefront:study_detail' application.study.slug %}">View study details</a>
-  </div>
+  {% if application.study.status == 'published' or application.study.status == 'full' %}
+    <div class="text-end mb-4">
+      <a href="{% url 'storefront:study_detail' application.study.slug %}">View study details</a>
+    </div>
+  {% endif %}
 
   <div class="row g-4">
     <div class="col-lg-8">
@@ -76,7 +78,7 @@
                 {% if visit.scheduled_for %}{{ visit.scheduled_for|date:"D j M Y, g:i A" }}{% else %}Date to be confirmed{% endif %}
                 {% if visit.scheduled_for %} · {{ visit.site.name }}{% endif %}
               </div>
-              {% if visit.status == 'proposed' and visit.scheduled_for %}
+              {% if visit.status == 'proposed' and visit.scheduled_for and visit.scheduled_for > now %}
                 <form method="post" action="{% url 'storefront:confirm_appointment' application.pk visit.pk %}" class="mt-2">
                   {% csrf_token %}
                   <button class="btn btn-link p-0" type="submit">Confirm</button>

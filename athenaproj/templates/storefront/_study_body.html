@@ -26,7 +26,7 @@
           <dt class="col-sm-4">Health</dt><dd class="col-sm-8">{% if study.accepts_healthy_volunteers %}Healthy volunteers are welcome{% else %}For people living with a health condition{% endif %}</dd>
           {% if study.required_conditions.exists %}<dt class="col-sm-4">Must have</dt><dd class="col-sm-8">{% for condition in study.required_conditions.all %}<span class="badge text-bg-light">{{ condition.name }}</span> {% endfor %}</dd>{% endif %}
           {% if study.excluded_conditions.exists %}<dt class="col-sm-4">Not suitable if you have</dt><dd class="col-sm-8">{% for condition in study.excluded_conditions.all %}<span class="badge text-bg-light">{{ condition.name }}</span> {% endfor %}</dd>{% endif %}
-          {% if study.min_bmi or study.max_bmi %}<dt class="col-sm-4">BMI</dt><dd class="col-sm-8">{{ study.min_bmi }} to {{ study.max_bmi }}</dd>{% endif %}
+          {% if study.min_bmi or study.max_bmi %}<dt class="col-sm-4">BMI</dt><dd class="col-sm-8">{{ study.min_bmi|default:"No minimum" }} to {{ study.max_bmi|default:"no maximum" }}</dd>{% endif %}
           <dt class="col-sm-4">Smoking</dt><dd class="col-sm-8">{{ study.get_smoker_rule_display }}</dd>
           <dt class="col-sm-4">Where you live</dt><dd class="col-sm-8">{% if study.regions.exists %}{% for region in study.regions.all %}{% if not forloop.first %}, {% endif %}{{ region.name }}{% endfor %}{% else %}Anywhere in Singapore{% endif %}</dd>
         </dl>

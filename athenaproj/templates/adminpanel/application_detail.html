@@ -122,7 +122,7 @@
           <form method="post" class="mb-2">{% csrf_token %}<input type="hidden" name="action" value="waitlist"><button class="btn btn-outline-primary" type="submit">Waitlist</button></form>
           <a class="btn btn-outline-primary" href="{% url 'adminpanel:application_not_selected' application.pk %}">Mark not selected</a>
         {% elif application.status == 'enrolled' %}
-          <button class="btn btn-outline-primary" type="button" disabled>Go to visits and payouts</button>
+          <a class="btn btn-primary" href="{% url 'adminpanel:participation_detail' application.pk %}">Go to visits and payouts</a>
         {% else %}
           <p class="mb-0">This application is closed.</p>
         {% endif %}

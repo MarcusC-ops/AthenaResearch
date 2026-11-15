@@ -171,10 +171,6 @@ h6 {
   text-decoration: none;
 }
 
-.panel-content .row > [class*="col-"] {
-  display: flex;
-}
-
 .panel-content .row {
   --bs-gutter-x: 0.75rem;
   --bs-gutter-y: 0.75rem;
@@ -184,11 +180,10 @@ h6 {
   gap: 0.75rem !important;
 }
 
-.panel-content .row > [class*="col-"] > * {
-  width: 100%;
-}
-
-.panel-content .row > [class*="col-"] > * > .card {
+/* A card that is the only thing in a grid column fills the column's height, so
+   cards in the same row line up. Columns stay normal block containers: making
+   them flex rows laid stacked cards side by side and broke <dl class="row">. */
+.panel-content .row:not(dl) > [class*="col-"] > .card:only-child {
   height: 100%;
 }
 
@@ -386,6 +381,20 @@ h6 {
   margin: 0;
 }
 
+.profile-facts dt {
+  color: #6c757d;
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+
+.profile-facts dd {
+  margin-bottom: 0.75rem;
+}
+
+.profile-facts dd:last-child {
+  margin-bottom: 0;
+}
+
 .what-next {
   border-left: 4px solid var(--athena-blue);
 }
@@ -422,6 +431,14 @@ h6 {
   height: 100%;
   background: #6b7280;
   border-radius: 999px;
+}
+
+.insights-bars td {
+  vertical-align: middle;
+}
+
+.insights-bars .insights-bar-cell {
+  width: 40%;
 }
 
 .study-status-tabs {
