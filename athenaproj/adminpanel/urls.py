@@ -57,4 +57,8 @@ urlpatterns = [
         views.application_override_confirm,
         name='application_override_confirm',
     ),
+    path('participation/', views.participation, name='participation'),
+    path('participation/<int:application_id>/', views.participation_detail, name='participation_detail'),
+    path('participation/<int:application_id>/withdraw/', views.participation_withdraw, name='participation_withdraw'),
+    path('insights/', views.insights, name='insights'),
 ]

@@ -369,6 +369,46 @@ class Command(BaseCommand):
                 'moderated_at': None,
             },
         )
+        self.create_memory_study_payouts(memory_study)
+
+    def create_memory_study_payouts(self, memory_study):
+        """Add payouts for Memory Games study: 2 paid, 1 requested."""
+        now = timezone.now()
+        for demo_num in [1, 2, 3]:
+            profile = ParticipantProfile.objects.get(
+                user__username=f'demo{demo_num:02d}@example.com'
+            )
+            application = Application.objects.get(
+                participant=profile,
+                study=memory_study,
+            )
+            if demo_num <= 2:
+                Payout.objects.update_or_create(
+                    application=application,
+                    status=Payout.Status.PAID,
+                    defaults={
+                        'amount': '30.00',
+                        'visits_counted': 1,
+                        'reference': f'PN-2026-00000{demo_num + 1}',
+                        'requested_by': None,
+                        'paid_by': None,
+                        'paid_at': now - timedelta(days=30),
+                        'rejection_reason': '',
+                    },
+                )
+            else:
+                existing = Payout.objects.filter(application=application, status=Payout.Status.REQUESTED).exists()
+                if not existing:
+                    Payout.objects.create(
+                        application=application,
+                        amount='30.00',
+                        visits_counted=1,
+                        status=Payout.Status.REQUESTED,
+                        requested_by=None,
+                        paid_by=None,
+                        paid_at=None,
+                        rejection_reason='',
+                    )
 
     def create_order_management_applications(self, study, sites):
         applicants = [
@@ -668,6 +708,18 @@ class Command(BaseCommand):
                 'requested_by': None,
                 'paid_by': None,
                 'paid_at': now - timedelta(days=35),
+                'rejection_reason': '',
+            },
+        )
+        Payout.objects.update_or_create(
+            application=application,
+            status=Payout.Status.REQUESTED,
+            defaults={
+                'amount': '70.00',
+                'visits_counted': 3,
+                'requested_by': None,
+                'paid_by': None,
+                'paid_at': None,
                 'rejection_reason': '',
             },
         )

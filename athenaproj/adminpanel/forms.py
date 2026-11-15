@@ -1,6 +1,6 @@
 from django import forms
 
-from core.models import Application, Condition, PreScreenQuestion, Site, Study, StudyCategory
+from core.models import Application, Appointment, Condition, PreScreenQuestion, Site, Study, StudyCategory
 
 
 class StudyForm(forms.ModelForm):
@@ -289,3 +289,39 @@ class OverrideBandForm(forms.Form):
                 'Give a reason of at least 10 characters.'
             )
         return reason
+
+
+class VisitDateForm(forms.Form):
+    scheduled_for = forms.DateTimeField(
+        label='Date and time',
+        widget=forms.DateTimeInput(attrs={'type': 'datetime-local', 'class': 'form-control'}),
+    )
+
+    def __init__(self, *args, appointment, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.appointment = appointment
+
+
+class ParticipationFilterForm(forms.Form):
+    study_id = forms.ModelChoiceField(
+        queryset=Study.objects.none(),
+        label='Study',
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select'}),
+    )
+
+    def __init__(self, *args, organisation, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['study_id'].queryset = Study.objects.filter(
+            organisation=organisation,
+            status__in=[Study.Status.PUBLISHED, Study.Status.PAUSED, Study.Status.FULL],
+        ).order_by('title')
+        self.fields['study_id'].empty_label = 'All our studies'
+
+
+class CoordinatorWithdrawForm(forms.Form):
+    reason = forms.CharField(
+        required=False,
+        label='Reason to show participant',
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+    )

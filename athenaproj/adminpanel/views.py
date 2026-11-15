@@ -7,17 +7,25 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
-from core.models import Application, Study
+from core.models import Application, Appointment, Payout, Study
 from core.services import (
     InvalidStatusMove,
     age_band,
     applicant_queue,
+    amount_due,
+    applicant_mix,
+    band_distribution,
+    band_pass_rates,
     check_eligibility,
+    complete_participation,
+    coordinator_dashboard,
+    coordinator_withdraw,
     create_pre_screen_question,
     create_study,
     delete_pre_screen_question,
     enrol_applicant,
     enrolled_count,
+    earned_amount,
     get_panel_application,
     get_panel_study,
     get_settings,
@@ -25,16 +33,20 @@ from core.services import (
     list_notifications,
     mark_not_selected,
     mark_all_read,
+    mark_visit,
     model_inputs,
     move_to_review,
     override_band,
     panel_studies,
     record_screening_outcome,
+    request_payout,
     run_compliance_checks,
+    save_visit_date,
     schedule_screening,
     shortlist_applicant,
     set_auto_shortlist,
     sign_in_check,
+    study_funnel,
     submit_study_for_review,
     update_pre_screen_question,
     update_study,
@@ -45,19 +57,26 @@ from core.services import (
 from .decorators import coordinator_required
 from .forms import (
     ApplicantFilterForm,
+    CoordinatorWithdrawForm,
     NotSelectedForm,
     OverrideBandForm,
+    ParticipationFilterForm,
     PreScreenQuestionForm,
     ScreeningOutcomeForm,
     ScreeningScheduleForm,
     StudyForm,
+    VisitDateForm,
 )
 
 
 def dashboard(request):
     role = user_role(request.user)
     if role == 'coordinator':
-        role_line = f'Study coordinator at {request.user.staff_profile.organisation}'
+        dashboard_data = coordinator_dashboard(request.user)
+        if dashboard_data:
+            return render(request, 'adminpanel/dashboard_coordinator.html', dashboard_data)
+        else:
+            role_line = f'Study coordinator at {request.user.staff_profile.organisation}'
     elif role == 'admin':
         role_line = 'Platform admin'
     else:
@@ -666,4 +685,194 @@ def application_override_confirm(request, application_id):
             form.cleaned_data['new_band'], form.cleaned_data['new_band']
         ),
         'reason': form.cleaned_data['reason'],
+    })
+
+
+@coordinator_required
+def participation(request):
+    org = request.user.staff_profile.organisation
+    applications_qs = Application.objects.filter(
+        study__organisation=org,
+        status__in=[Application.Status.ENROLLED, Application.Status.COMPLETED],
+    ).select_related('participant__user', 'study').order_by('-created_at')
+
+    form = ParticipationFilterForm(request.GET or None, organisation=org)
+    if form.is_valid() and form.cleaned_data.get('study_id'):
+        applications_qs = applications_qs.filter(study=form.cleaned_data['study_id'])
+
+    applications_with_amounts = []
+    for app in applications_qs:
+        attended_count = app.appointments.filter(
+            kind=Appointment.Kind.VISIT,
+            status=Appointment.Status.ATTENDED,
+        ).count()
+        due = amount_due(app)
+        applications_with_amounts.append({
+            'app': app,
+            'attended_count': attended_count,
+            'total_visits': app.study.total_visits,
+            'due': due,
+            'paid': sum(
+                p.amount for p in app.payouts.filter(status=Payout.Status.PAID)
+            ),
+        })
+
+    return render(request, 'adminpanel/participation.html', {
+        'applications': applications_with_amounts,
+        'filter_form': form,
+    })
+
+
+@coordinator_required
+def participation_detail(request, application_id):
+    application = get_object_or_404(
+        Application.objects.select_related('participant__user', 'study__organisation'),
+        pk=application_id,
+        study__organisation=request.user.staff_profile.organisation,
+    )
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+
+        if action == 'save_date':
+            appointment_id = request.POST.get('appointment_id')
+            appointment = get_object_or_404(
+                Appointment,
+                pk=appointment_id,
+                application=application,
+            )
+            form = VisitDateForm(request.POST, appointment=appointment)
+            if form.is_valid():
+                try:
+                    save_visit_date(
+                        appointment,
+                        form.cleaned_data['scheduled_for'],
+                        request.user,
+                    )
+                    messages.success(request, 'Visit date saved.')
+                except ValidationError as e:
+                    messages.error(request, str(e))
+            return redirect('adminpanel:participation_detail', application_id=application.pk)
+
+        elif action == 'mark_attended':
+            appointment_id = request.POST.get('appointment_id')
+            appointment = get_object_or_404(
+                Appointment,
+                pk=appointment_id,
+                application=application,
+            )
+            try:
+                mark_visit(appointment, True, request.user)
+                messages.success(request, 'Visit marked as attended.')
+            except ValidationError as e:
+                messages.error(request, str(e))
+            return redirect('adminpanel:participation_detail', application_id=application.pk)
+
+        elif action == 'mark_missed':
+            appointment_id = request.POST.get('appointment_id')
+            appointment = get_object_or_404(
+                Appointment,
+                pk=appointment_id,
+                application=application,
+            )
+            try:
+                mark_visit(appointment, False, request.user)
+                messages.success(request, 'Visit marked as missed.')
+            except ValidationError as e:
+                messages.error(request, str(e))
+            return redirect('adminpanel:participation_detail', application_id=application.pk)
+
+        elif action == 'request_payout':
+            try:
+                request_payout(application, request.user)
+                messages.success(request, 'Payout requested.')
+            except ValidationError as e:
+                messages.error(request, str(e))
+            return redirect('adminpanel:participation_detail', application_id=application.pk)
+
+        elif action == 'complete':
+            try:
+                complete_participation(application, request.user)
+                messages.success(request, 'Participant marked as completed.')
+            except ValidationError as e:
+                messages.error(request, str(e))
+            return redirect('adminpanel:participation_detail', application_id=application.pk)
+
+        elif action == 'withdraw':
+            return redirect('adminpanel:participation_withdraw', application_id=application.pk)
+
+    visits = application.appointments.filter(kind=Appointment.Kind.VISIT).order_by('visit_number')
+    screening = application.appointments.filter(kind=Appointment.Kind.SCREENING).first()
+    due_now = amount_due(application)
+    payouts = application.payouts.order_by('-created_at', '-id')
+
+    return render(request, 'adminpanel/participation_detail.html', {
+        'application': application,
+        'screening': screening,
+        'visits': visits,
+        'due_now': due_now,
+        'payouts': payouts,
+    })
+
+
+@coordinator_required
+def participation_withdraw(request, application_id):
+    application = get_object_or_404(
+        Application.objects.select_related('study__organisation'),
+        pk=application_id,
+        study__organisation=request.user.staff_profile.organisation,
+    )
+
+    if request.method == 'POST':
+        form = CoordinatorWithdrawForm(request.POST)
+        if form.is_valid():
+            try:
+                coordinator_withdraw(
+                    application,
+                    request.user,
+                    form.cleaned_data['reason'],
+                )
+                messages.success(request, 'Participant withdrawn.')
+            except ValidationError as e:
+                messages.error(request, str(e))
+            return redirect('adminpanel:participation_detail', application_id=application.pk)
+    else:
+        form = CoordinatorWithdrawForm()
+
+    return render(request, 'adminpanel/participation_withdraw.html', {
+        'application': application,
+        'form': form,
+    })
+
+
+@coordinator_required
+def insights(request):
+    org = request.user.staff_profile.organisation
+    studies = Study.objects.filter(
+        organisation=org,
+        status__in=[Study.Status.PUBLISHED, Study.Status.PAUSED, Study.Status.FULL],
+    ).order_by('title')
+
+    applications_qs = Application.objects.filter(study__in=studies)
+
+    study_id = request.GET.get('study_id')
+    if study_id:
+        try:
+            study = Study.objects.get(pk=study_id, organisation=org)
+            applications_qs = applications_qs.filter(study=study)
+        except Study.DoesNotExist:
+            pass
+
+    funnel = study_funnel(applications_qs)
+    pass_rates = band_pass_rates(applications_qs)
+    distribution = band_distribution(applications_qs)
+    mix = applicant_mix(applications_qs)
+
+    return render(request, 'adminpanel/insights.html', {
+        'studies': studies,
+        'selected_study_id': study_id,
+        'funnel': funnel,
+        'pass_rates': pass_rates,
+        'distribution': distribution,
+        'mix': mix,
     })
