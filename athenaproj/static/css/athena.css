@@ -176,12 +176,12 @@ h6 {
 }
 
 .panel-content .row {
-  --bs-gutter-x: 1.5rem;
-  --bs-gutter-y: 1.5rem;
+  --bs-gutter-x: 0.75rem;
+  --bs-gutter-y: 0.75rem;
 }
 
 .panel-content .d-grid.gap-3 {
-  gap: 1.5rem !important;
+  gap: 0.75rem !important;
 }
 
 .panel-content .row > [class*="col-"] > * {
