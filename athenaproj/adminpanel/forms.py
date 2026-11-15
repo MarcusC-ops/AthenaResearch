@@ -516,3 +516,79 @@ class PlatformInsightsFilterForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.fields['organisation_id'].queryset = Organisation.objects.order_by('name')
         self.fields['study_id'].queryset = Study.objects.order_by('title')
+
+
+class ThresholdForm(forms.Form):
+    high = forms.FloatField(
+        label='High band from',
+        min_value=0,
+        max_value=1,
+        widget=forms.NumberInput(
+            attrs={'class': 'form-control', 'step': '0.01', 'min': '0', 'max': '1'}
+        ),
+    )
+    medium = forms.FloatField(
+        label='Medium band from',
+        min_value=0,
+        max_value=1,
+        widget=forms.NumberInput(
+            attrs={'class': 'form-control', 'step': '0.01', 'min': '0', 'max': '1'}
+        ),
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        high = cleaned_data.get('high')
+        medium = cleaned_data.get('medium')
+        if (
+            high is None
+            or medium is None
+            or not 0 < medium < high < 1
+        ):
+            raise forms.ValidationError(
+                'Medium must be above 0, High must be above Medium, and High must be below 1.'
+            )
+        return cleaned_data
+
+
+class StaffAccountForm(forms.Form):
+    first_name = forms.CharField(
+        label='First name',
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+    )
+    last_name = forms.CharField(
+        label='Last name',
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+    )
+    email = forms.EmailField(
+        label='Email',
+        widget=forms.EmailInput(attrs={'class': 'form-control'}),
+    )
+    role = forms.ChoiceField(
+        label='Role',
+        choices=[('staff', 'Staff'), ('admin', 'Admin')],
+        widget=forms.Select(attrs={'class': 'form-select'}),
+    )
+    job_title = forms.CharField(
+        label='Job title',
+        required=False,
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+    )
+    mobile = forms.CharField(
+        label='Mobile',
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+    )
+    temporary_password = forms.CharField(
+        label='Temporary password',
+        widget=forms.PasswordInput(attrs={'class': 'form-control'}),
+    )
+
+    def clean_email(self):
+        email = self.cleaned_data['email'].strip().lower()
+        from django.contrib.auth.models import User
+        if User.objects.filter(username=email).exists():
+            raise forms.ValidationError('An account with this email already exists.')
+        return email
+
+    def clean_mobile(self):
+        return normalise_sg_mobile(self.cleaned_data['mobile'])

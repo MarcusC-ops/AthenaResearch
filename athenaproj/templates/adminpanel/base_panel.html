@@ -20,6 +20,10 @@
         <div class="text-muted small mb-2">OVERVIEW</div>
         <a href="/panel/" class="d-block mb-4">Dashboard</a>
         {% if user_role == 'coordinator' or user_role == 'staff' or user_role == 'admin' %}<a href="/panel/insights/" class="d-block mb-4">Insights</a>{% endif %}
+        {% if user_role == 'staff' or user_role == 'admin' %}
+          <div class="text-muted small mb-2">MACHINE LEARNING</div>
+          <a href="{% url 'adminpanel:ml_monitor' %}" class="d-block mb-4">ML monitor</a>
+        {% endif %}
         <div class="text-muted small mb-2">STUDIES</div>
         <a href="{% url 'adminpanel:study_list' %}" class="d-block mb-4">Study listings</a>
         {% if user_role == 'coordinator' %}<a href="/panel/participation/" class="d-block mb-4">Participation</a>{% endif %}
@@ -33,6 +37,12 @@
           <a href="/panel/participants/" class="d-block mb-2">Participants</a>
           <a href="/panel/organisations/" class="d-block mb-2">Organisations</a>
           <a href="/panel/taxonomy/" class="d-block mb-4">Taxonomy</a>
+          {% if user_role == 'admin' %}
+            <div class="text-muted small mb-2">ADMIN</div>
+            <a href="{% url 'adminpanel:ml_settings' %}" class="d-block mb-2">ML settings</a>
+            <a href="{% url 'adminpanel:staff_accounts' %}" class="d-block mb-2">Staff accounts</a>
+            <a href="{% url 'adminpanel:demo_data' %}" class="d-block mb-4">Demo data</a>
+          {% endif %}
         {% endif %}
         <div class="text-muted small mb-2">STOREFRONT</div>
         <a href="/" class="d-block">View storefront</a>

@@ -1,0 +1,7 @@
+{% extends 'adminpanel/base_panel.html' %}
+{% block content %}
+<h1>Load demo data</h1>
+<p>This runs the same seed_demo command used to set up the project. It adds anything missing and never deletes data.</p>
+<form method="post">{% csrf_token %}<button class="btn btn-primary" type="submit">Load demo data</button></form>
+{% if output %}<pre class="card p-3 mt-4">{{ output }}</pre>{% endif %}
+{% endblock %}
