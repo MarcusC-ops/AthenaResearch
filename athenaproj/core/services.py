@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import timedelta
+from collections import defaultdict
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
@@ -10,6 +11,10 @@ from django.db.models import Case, Count, Q, Value, When
 from django.utils import timezone
 
 from .models import (
+    AppSetting,
+    Application,
+    ApplicationAnswer,
+    ApplicationStatusEvent,
     Condition,
     Notification,
     Organisation,
@@ -22,6 +27,68 @@ from .models import (
     StudyCategory,
 )
 from .validators import normalise_sg_mobile
+
+
+ALLOWED_MOVES = {
+    Application.Status.SUBMITTED: {
+        Application.Status.AUTO_DECLINED,
+        Application.Status.UNDER_REVIEW,
+        Application.Status.WAITLISTED,
+        Application.Status.SHORTLISTED,
+        Application.Status.WITHDRAWN,
+    },
+    Application.Status.UNDER_REVIEW: {
+        Application.Status.SHORTLISTED,
+        Application.Status.NOT_SELECTED,
+        Application.Status.WITHDRAWN,
+    },
+    Application.Status.WAITLISTED: {
+        Application.Status.UNDER_REVIEW,
+        Application.Status.NOT_SELECTED,
+        Application.Status.WITHDRAWN,
+    },
+    Application.Status.SHORTLISTED: {
+        Application.Status.SCREENING_SCHEDULED,
+        Application.Status.NOT_SELECTED,
+        Application.Status.WITHDRAWN,
+    },
+    Application.Status.SCREENING_SCHEDULED: {
+        Application.Status.SCREENING_PASSED,
+        Application.Status.SCREENING_FAILED,
+        Application.Status.WITHDRAWN,
+    },
+    Application.Status.SCREENING_PASSED: {
+        Application.Status.ENROLLED,
+        Application.Status.WAITLISTED,
+        Application.Status.NOT_SELECTED,
+        Application.Status.WITHDRAWN,
+    },
+    Application.Status.ENROLLED: {
+        Application.Status.COMPLETED,
+        Application.Status.WITHDRAWN,
+    },
+    Application.Status.AUTO_DECLINED: set(),
+    Application.Status.NOT_SELECTED: set(),
+    Application.Status.SCREENING_FAILED: set(),
+    Application.Status.COMPLETED: set(),
+    Application.Status.WITHDRAWN: set(),
+}
+FINAL_STATUSES = {
+    status for status, moves in ALLOWED_MOVES.items() if not moves
+}
+OPEN_STATUSES = set(ALLOWED_MOVES) - FINAL_STATUSES
+
+
+class InvalidStatusMove(Exception):
+    pass
+
+
+class NotEligible(Exception):
+    pass
+
+
+class StudyFull(InvalidStatusMove):
+    pass
 
 
 def list_regions():
@@ -412,6 +479,177 @@ def refresh_interest_predictions(profile):
         'ml1_categories', 'ml1_model_version', 'ml1_predicted_at', 'updated_at',
     ])
     return result
+
+
+def enrolled_count(study):
+    return study.applications.filter(
+        status__in=[Application.Status.ENROLLED, Application.Status.COMPLETED]
+    ).count()
+
+
+def is_full(study):
+    return enrolled_count(study) >= study.target_enrolment
+
+
+@transaction.atomic
+def refresh_capacity(study):
+    full = is_full(study)
+    if study.status == Study.Status.PUBLISHED and full:
+        study.status = Study.Status.FULL
+        study.save(update_fields=['status', 'updated_at'])
+    elif study.status == Study.Status.FULL and not full:
+        study.status = Study.Status.PUBLISHED
+        study.save(update_fields=['status', 'updated_at'])
+    return study
+
+
+@transaction.atomic
+def change_status(application, to_status, actor=None, actor_role='system', note=''):
+    current = application.status
+    if to_status not in ALLOWED_MOVES.get(current, set()):
+        current_label = application.Status(current).label
+        target_label = application.Status(to_status).label
+        raise InvalidStatusMove(
+            f'An application cannot move from {current_label} to {target_label}.'
+        )
+    if to_status == Application.Status.ENROLLED and is_full(application.study):
+        raise StudyFull('This study is full. Waitlist the applicant instead.')
+    application.status = to_status
+    application.save(update_fields=['status', 'updated_at'])
+    ApplicationStatusEvent.objects.create(
+        application=application,
+        from_status=current,
+        to_status=to_status,
+        actor=actor,
+        actor_role=actor_role,
+        note=note,
+    )
+    if to_status == Application.Status.ENROLLED or current == Application.Status.ENROLLED:
+        refresh_capacity(application.study)
+    return application
+
+
+def get_settings():
+    settings, _ = AppSetting.objects.get_or_create(
+        pk=1,
+        defaults={
+            'ml2_high_threshold': 0.70,
+            'ml2_medium_threshold': 0.40,
+        },
+    )
+    return settings
+
+
+def band_for(probability, settings):
+    if probability is None:
+        return Application.Band.UNSCORED
+    if probability >= float(settings.ml2_high_threshold):
+        return Application.Band.HIGH
+    if probability >= float(settings.ml2_medium_threshold):
+        return Application.Band.MEDIUM
+    return Application.Band.LOW
+
+
+@transaction.atomic
+def submit_application(profile, study, answers, preferred_site_id, availability, consent):
+    if study.status not in (Study.Status.PUBLISHED, Study.Status.FULL):
+        raise Study.DoesNotExist
+    existing = Application.objects.filter(participant=profile, study=study).first()
+    if existing:
+        return existing, False
+    if not is_eligible(profile, study):
+        raise NotEligible
+    if not consent:
+        raise ValidationError('Tick the consent box to send your application.')
+
+    questions = list(study.pre_screen_questions.all())
+    normalised_answers = {int(key): value for key, value in answers.items()}
+    if any(
+        question.pk not in normalised_answers
+        or normalised_answers[question.pk] not in question.option_list()
+        for question in questions
+    ):
+        raise ValidationError('Answer every question.')
+    if not study.sites.filter(pk=preferred_site_id).exists():
+        raise ValidationError('Choose a site for this study.')
+    if availability not in Application.Availability.values:
+        raise ValidationError('Choose when you are available.')
+
+    now = timezone.now()
+    application = Application.objects.create(
+        participant=profile,
+        study=study,
+        status=Application.Status.SUBMITTED,
+        preferred_site_id=preferred_site_id,
+        availability=availability,
+        consent_given_at=now,
+        submitted_at=now,
+    )
+    ApplicationAnswer.objects.bulk_create([
+        ApplicationAnswer(
+            application=application,
+            question=question,
+            answer=normalised_answers[question.pk],
+        )
+        for question in questions
+    ])
+    ApplicationStatusEvent.objects.create(
+        application=application,
+        from_status='',
+        to_status=Application.Status.SUBMITTED,
+        actor_role=ApplicationStatusEvent.ActorRole.SYSTEM,
+        note='Application received',
+    )
+    if not profile.first_application_category_id:
+        profile.first_application_category = study.category
+        profile.save(update_fields=['first_application_category', 'updated_at'])
+
+    if any(
+        normalised_answers[question.pk] == question.disqualifying_answer
+        for question in questions
+        if question.disqualifying_answer
+    ):
+        change_status(
+            application,
+            Application.Status.AUTO_DECLINED,
+            note='One of your answers means this study is not the right fit.',
+        )
+        return application, True
+
+    from ml import services as ml_services
+    prediction = ml_services.predict_screening(application)
+    if prediction is None:
+        band = Application.Band.UNSCORED
+    else:
+        application.ml2_probability = prediction.get('probability')
+        application.ml2_model_version = prediction.get('version', '')
+        band = band_for(application.ml2_probability, get_settings())
+        application.ml2_band = band
+        application.save(update_fields=[
+            'ml2_probability', 'ml2_model_version', 'ml2_band', 'updated_at',
+        ])
+
+    if is_full(study):
+        change_status(
+            application,
+            Application.Status.WAITLISTED,
+            note='The study is full, so you are on the waitlist.',
+        )
+    elif band == Application.Band.HIGH and study.auto_shortlist_high:
+        application.auto_shortlisted = True
+        application.save(update_fields=['auto_shortlisted', 'updated_at'])
+        change_status(
+            application,
+            Application.Status.SHORTLISTED,
+            note='Shortlisted by System',
+        )
+    else:
+        change_status(
+            application,
+            Application.Status.UNDER_REVIEW,
+            note='Waiting for the research team to review',
+        )
+    return application, True
 
 
 def _feed_reasons(profile, study, category_position):
