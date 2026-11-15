@@ -1979,6 +1979,117 @@ def request_payout(application, user):
     return payout
 
 
+def next_payout_reference(year):
+    prefix = f'PN-{year}-'
+    numbers = []
+    for reference in Payout.objects.filter(
+        reference__startswith=prefix,
+    ).values_list('reference', flat=True):
+        try:
+            numbers.append(int(reference[len(prefix):]))
+        except (TypeError, ValueError):
+            continue
+    return f'{prefix}{(max(numbers, default=0) + 1):06d}'
+
+
+@transaction.atomic
+def pay_payouts(ids, user):
+    payouts = list(
+        Payout.objects.select_for_update().select_related(
+            'application__study',
+        ).filter(pk__in=ids).order_by('pk')
+    )
+    if len(payouts) != len(set(ids)):
+        raise ValidationError('One or more selected payouts could not be found.')
+
+    now = timezone.now()
+    total = Decimal('0.00')
+    for payout in payouts:
+        if payout.status != Payout.Status.REQUESTED:
+            raise ValidationError(
+                f'{payout.reference or payout.pk} could not be paid: '
+                'the amount is more than the visits have earned.'
+            )
+        other_total = payout.application.payouts.filter(
+            status__in=[Payout.Status.PAID, Payout.Status.REQUESTED],
+        ).exclude(pk=payout.pk).aggregate(total=Sum('amount'))['total']
+        available = earned_amount(payout.application) - (other_total or Decimal('0.00'))
+        if payout.amount > available:
+            raise ValidationError(
+                f'{payout.reference or payout.pk} could not be paid: '
+                'the amount is more than the visits have earned.'
+            )
+
+    for payout in payouts:
+        payout.status = Payout.Status.PAID
+        payout.reference = next_payout_reference(now.year)
+        payout.paid_by = user
+        payout.paid_at = now
+        payout.save(update_fields=[
+            'status', 'reference', 'paid_by', 'paid_at', 'updated_at',
+        ])
+        total += payout.amount
+    return len(payouts), total
+
+
+@transaction.atomic
+def reject_payout(payout, user, reason):
+    reason = reason.strip()
+    if payout.status != Payout.Status.REQUESTED:
+        raise ValidationError('Only requested payouts can be rejected.')
+    if not reason:
+        raise ValidationError('Enter a reason for rejecting this payout.')
+    payout.status = Payout.Status.REJECTED
+    payout.rejection_reason = reason
+    payout.save(update_fields=['status', 'rejection_reason', 'updated_at'])
+    return payout
+
+
+@transaction.atomic
+def approve_review(review, user):
+    if review.status != Review.Status.PENDING:
+        raise ValidationError('Only pending reviews can be approved.')
+    review.status = Review.Status.APPROVED
+    review.moderated_by = user
+    review.moderated_at = timezone.now()
+    review.save(update_fields=['status', 'moderated_by', 'moderated_at', 'updated_at'])
+    return review
+
+
+@transaction.atomic
+def reject_review(review, user, reason):
+    reason = reason.strip()
+    if review.status != Review.Status.PENDING:
+        raise ValidationError('Only pending reviews can be rejected.')
+    if not reason:
+        raise ValidationError('Enter a reason for not approving this review.')
+    review.status = Review.Status.REJECTED
+    review.rejection_reason = reason
+    review.moderated_by = user
+    review.moderated_at = timezone.now()
+    review.save(update_fields=[
+        'status', 'rejection_reason', 'moderated_by', 'moderated_at', 'updated_at',
+    ])
+    return review
+
+
+@transaction.atomic
+def reply_to_support(request, user, reply):
+    reply = reply.strip()
+    if request.reply:
+        raise ValidationError('This question already has a reply.')
+    if not reply:
+        raise ValidationError('Enter a reply.')
+    request.reply = reply
+    request.replied_by = user
+    request.replied_at = timezone.now()
+    request.status = SupportRequest.Status.ANSWERED
+    request.save(update_fields=[
+        'reply', 'replied_by', 'replied_at', 'status', 'updated_at',
+    ])
+    return request
+
+
 @transaction.atomic
 def complete_participation(application, user):
     """Mark application as completed if all visits are recorded."""
@@ -2140,6 +2251,61 @@ def applicant_mix(qs):
         }
 
     return result
+
+
+def platform_insights(org_id=None, study_id=None):
+    studies = Study.objects.all()
+    if org_id:
+        studies = studies.filter(organisation_id=org_id)
+    if study_id:
+        studies = studies.filter(pk=study_id)
+    applications = Application.objects.filter(study__in=studies)
+    return {
+        'funnel': study_funnel(applications),
+        'pass_rates': band_pass_rates(applications),
+        'distribution': band_distribution(applications),
+        'mix': applicant_mix(applications),
+    }
+
+
+def demand_supply_by_category():
+    interested = defaultdict(int)
+    profiles = ParticipantProfile.objects.filter(
+        consent_matching=True,
+    ).values_list('ml1_categories', flat=True)
+    for categories in profiles:
+        if categories:
+            interested[categories[0]] += 1
+
+    published = Study.objects.filter(
+        status=Study.Status.PUBLISHED,
+    ).annotate(
+        enrolled_count=Count(
+            'applications',
+            filter=Q(applications__status__in=[
+                Application.Status.ENROLLED,
+                Application.Status.COMPLETED,
+            ]),
+        ),
+    ).values(
+        'category_id', 'target_enrolment', 'enrolled_count',
+    )
+    supply = defaultdict(lambda: {'open_studies': 0, 'places_left': 0})
+    for study in published:
+        supply[study['category_id']]['open_studies'] += 1
+        supply[study['category_id']]['places_left'] += max(
+            0, study['target_enrolment'] - study['enrolled_count']
+        )
+    categories = StudyCategory.objects.filter(is_active=True).order_by('display_order')
+    return [
+        {
+            'category': category,
+            'interested_participants': interested.get(category.ml_label, 0),
+            'open_studies': supply[category.pk]['open_studies'],
+            'places_left': supply[category.pk]['places_left'],
+        }
+        for category in categories
+    ]
 
 
 def coordinator_dashboard(user):

@@ -61,7 +61,7 @@ class OnboardingViewsTests(TestCase):
     def test_03_valid_onboarding_saves_profile(self):
         self.client.force_login(self.aisyah)
         response = self.client.post('/onboarding/', self.valid_form())
-        self.assertRedirects(response, '/account/')
+        self.assertRedirects(response, '/for-you/')
         self.profile.refresh_from_db()
         self.assertIsNotNone(self.profile.onboarding_completed_at)
         self.assertEqual(str(self.profile.bmi), '20.3')

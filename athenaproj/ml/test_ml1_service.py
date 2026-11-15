@@ -84,10 +84,10 @@ class ML1ServiceTests(TestCase):
         self.assertTrue(log.error_message)
 
     def test_05_model_health_reflects_model_files(self):
-        self.assertEqual(model_health(), {'ml1': True})
+        self.assertEqual(model_health(), {'ml1': True, 'ml2': True})
         with TemporaryDirectory() as directory:
             with patch('ml.services.MODEL_DIR', Path(directory)):
-                self.assertEqual(model_health(), {'ml1': False})
+                self.assertEqual(model_health(), {'ml1': False, 'ml2': False})
 
     def test_06_refresh_interest_predictions_stores_prediction(self):
         self.profile.refresh_from_db()

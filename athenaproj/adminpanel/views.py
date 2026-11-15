@@ -50,6 +50,13 @@ from core.services import (
     panel_studies,
     record_screening_outcome,
     request_payout,
+    approve_review,
+    demand_supply_by_category,
+    pay_payouts,
+    platform_insights,
+    reject_payout,
+    reject_review,
+    reply_to_support,
     run_compliance_checks,
     ops_dashboard,
     save_site,
@@ -75,7 +82,11 @@ from core.services import (
     waitlist_applicant,
 )
 
-from .decorators import coordinator_required, staff_required
+from .decorators import (
+    coordinator_required,
+    panel_staff_or_coordinator_required,
+    staff_required,
+)
 from .forms import (
     ApplicantFilterForm,
     CategoryForm,
@@ -87,10 +98,13 @@ from .forms import (
     OrganisationForm,
     OverrideBandForm,
     ParticipationFilterForm,
+    PayoutRejectForm,
+    PlatformInsightsFilterForm,
     PreScreenQuestionForm,
     ReasonForm,
     ScreeningOutcomeForm,
     ScreeningScheduleForm,
+    SupportReplyForm,
     SiteForm,
     StudyForm,
     VisitDateForm,
@@ -907,8 +921,25 @@ def participation_withdraw(request, application_id):
     })
 
 
-@coordinator_required
+@panel_staff_or_coordinator_required
 def insights(request):
+    if user_role(request.user) in ('staff', 'admin'):
+        form = PlatformInsightsFilterForm(request.GET or None)
+        if form.is_valid():
+            organisation = form.cleaned_data.get('organisation_id')
+            study = form.cleaned_data.get('study_id')
+            data = platform_insights(
+                organisation.pk if organisation else None,
+                study.pk if study else None,
+            )
+        else:
+            data = platform_insights()
+        return render(request, 'adminpanel/platform_insights.html', {
+            **data,
+            'form': form,
+            'demand_supply': demand_supply_by_category(),
+        })
+
     org = request.user.staff_profile.organisation
     studies = Study.objects.filter(
         organisation=org,
@@ -937,6 +968,176 @@ def insights(request):
         'pass_rates': pass_rates,
         'distribution': distribution,
         'mix': mix,
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def payouts(request):
+    status = request.GET.get('status', Payout.Status.REQUESTED)
+    if status not in dict(Payout.Status.choices):
+        status = Payout.Status.REQUESTED
+    queryset = Payout.objects.filter(status=status).select_related(
+        'application__participant__user',
+        'application__study__organisation',
+    ).order_by('-created_at', '-id')
+    if request.method == 'POST':
+        ids = request.POST.getlist('ids')
+        if not ids:
+            messages.error(request, 'Select at least one payout.')
+            return redirect('adminpanel:payouts')
+        selected = queryset.filter(pk__in=ids)
+        return render(request, 'adminpanel/payout_confirm.html', {
+            'payouts': selected,
+            'total': sum(payout.amount for payout in selected),
+            'ids': ids,
+        })
+    return render(request, 'adminpanel/payouts.html', {
+        'payouts': queryset,
+        'status': status,
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def payout_pay(request):
+    ids = request.POST.getlist('ids') if request.method == 'POST' else request.GET.getlist('ids')
+    if request.method == 'POST':
+        try:
+            count, total = pay_payouts(ids, request.user)
+        except ValidationError as error:
+            messages.error(request, error.messages[0])
+            return redirect('adminpanel:payouts')
+        messages.success(request, f'{count} payout{"s" if count != 1 else ""} paid.')
+        return redirect('adminpanel:payouts',)
+    payouts = Payout.objects.filter(
+        pk__in=ids,
+        status=Payout.Status.REQUESTED,
+    ).select_related('application__study')
+    return render(request, 'adminpanel/payout_confirm.html', {
+        'payouts': payouts,
+        'total': sum(payout.amount for payout in payouts),
+        'ids': ids,
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def payout_reject(request, payout_id):
+    payout = get_object_or_404(
+        Payout.objects.select_related('application__study'),
+        pk=payout_id,
+    )
+    form = PayoutRejectForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        try:
+            reject_payout(payout, request.user, form.cleaned_data['reason'])
+        except ValidationError as error:
+            form.add_error('reason', error.messages[0])
+        else:
+            messages.success(request, 'Payout rejected.')
+            return redirect('adminpanel:payouts')
+    return render(request, 'adminpanel/payout_reject.html', {
+        'payout': payout,
+        'form': form,
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def reviews(request):
+    status = request.GET.get('status', Review.Status.PENDING)
+    if status not in dict(Review.Status.choices):
+        status = Review.Status.PENDING
+    review_list = Review.objects.filter(status=status).select_related(
+        'participant', 'study',
+    ).order_by('-created_at', '-id')
+    if request.method == 'POST':
+        review = get_object_or_404(Review, pk=request.POST.get('review_id'))
+        try:
+            approve_review(review, request.user)
+        except ValidationError as error:
+            messages.error(request, error.messages[0])
+        else:
+            messages.success(request, 'Review approved.')
+        return redirect('adminpanel:reviews')
+    return render(request, 'adminpanel/reviews.html', {
+        'reviews': review_list,
+        'status': status,
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def review_reject(request, review_id):
+    review = get_object_or_404(
+        Review.objects.select_related('participant', 'study'),
+        pk=review_id,
+    )
+    form = ReviewRejectForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        try:
+            reject_review(review, request.user, form.cleaned_data['reason'])
+        except ValidationError as error:
+            form.add_error('reason', error.messages[0])
+        else:
+            messages.success(request, 'Review rejected.')
+            return redirect('adminpanel:reviews')
+    return render(request, 'adminpanel/review_reject.html', {
+        'review': review,
+        'form': form,
+    })
+
+
+@staff_required
+def support(request):
+    status = request.GET.get('status', SupportRequest.Status.OPEN)
+    if status not in dict(SupportRequest.Status.choices):
+        status = SupportRequest.Status.OPEN
+    requests = SupportRequest.objects.filter(status=status).select_related(
+        'application__participant__user',
+        'application__study',
+    ).order_by('-created_at', '-id')
+    return render(request, 'adminpanel/support.html', {
+        'support_requests': requests,
+        'status': status,
+    })
+
+
+@staff_required
+@require_http_methods(['GET', 'POST'])
+def support_detail(request, support_id):
+    support_request = get_object_or_404(
+        SupportRequest.objects.select_related(
+            'application__participant__user',
+            'application__study',
+        ),
+        pk=support_id,
+    )
+    form = SupportReplyForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        try:
+            reply_to_support(
+                support_request,
+                request.user,
+                form.cleaned_data['reply'],
+            )
+        except ValidationError as error:
+            form.add_error('reply', error.messages[0])
+        else:
+            messages.success(request, 'Reply sent.')
+            return redirect('adminpanel:support_detail', support_id=support_request.pk)
+    application = support_request.application
+    return render(request, 'adminpanel/support_detail.html', {
+        'support_request': support_request,
+        'application': application,
+        'events': application.status_events.order_by('-created_at', '-id')[:3],
+        'visits_attended': application.appointments.filter(
+            kind=Appointment.Kind.VISIT,
+            status=Appointment.Status.ATTENDED,
+        ).count(),
+        'payouts': application.payouts.order_by('-created_at', '-id'),
+        'form': form,
     })
 
 

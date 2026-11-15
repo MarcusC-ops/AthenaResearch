@@ -1,0 +1,23 @@
+{% extends 'adminpanel/base_panel.html' %}
+{% block content %}
+<h1>Reviews</h1>
+<nav class="study-status-tabs mb-4">
+  <a class="badge {% if status == 'pending' %}text-bg-primary{% else %}text-bg-light text-dark{% endif %}" href="?status=pending">Pending</a>
+  <a class="badge {% if status == 'approved' %}text-bg-primary{% else %}text-bg-light text-dark{% endif %}" href="?status=approved">Published</a>
+  <a class="badge {% if status == 'rejected' %}text-bg-primary{% else %}text-bg-light text-dark{% endif %}" href="?status=rejected">Not approved</a>
+</nav>
+<div class="d-grid gap-3">
+{% for review in reviews %}
+  <article class="card p-3">
+    <h2 class="h5">{{ review.study.title }}</h2>
+    <p>{{ review.rating }} / 5</p>
+    {% if review.comment %}<p>{{ review.comment }}</p>{% endif %}
+    <p class="small text-muted">{{ review.participant.code }} · {{ review.created_at|date:"j M Y" }}</p>
+    {% if status == 'pending' %}
+      <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="review_id" value="{{ review.pk }}"><button class="btn btn-primary rounded-pill" type="submit">Approve</button></form>
+      <a class="btn btn-outline-dark rounded-pill" href="{% url 'adminpanel:review_reject' review.pk %}">Reject</a>
+    {% elif review.rejection_reason %}<p class="mb-0">Reason: {{ review.rejection_reason }}</p>{% endif %}
+  </article>
+{% empty %}<p>No reviews here.</p>{% endfor %}
+</div>
+{% endblock %}

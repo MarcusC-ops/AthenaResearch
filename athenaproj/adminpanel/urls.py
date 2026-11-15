@@ -141,4 +141,11 @@ urlpatterns = [
     path('participation/<int:application_id>/', views.participation_detail, name='participation_detail'),
     path('participation/<int:application_id>/withdraw/', views.participation_withdraw, name='participation_withdraw'),
     path('insights/', views.insights, name='insights'),
+    path('payouts/', views.payouts, name='payouts'),
+    path('payouts/pay/', views.payout_pay, name='payout_pay'),
+    path('payouts/<int:payout_id>/reject/', views.payout_reject, name='payout_reject'),
+    path('reviews/', views.reviews, name='reviews'),
+    path('reviews/<int:review_id>/reject/', views.review_reject, name='review_reject'),
+    path('support/', views.support, name='support'),
+    path('support/<int:support_id>/', views.support_detail, name='support_detail'),
 ]
