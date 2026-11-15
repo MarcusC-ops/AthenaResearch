@@ -5,12 +5,12 @@
   <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead>
   <tbody>{% for target in staff_users %}
     <tr><td>{{ target.get_full_name }}</td><td>{{ target.email }}</td><td>{% if target.groups.all.0.name == 'Admin' %}Admin{% else %}Staff{% endif %}</td><td>{% if target.is_active %}Active{% else %}Switched off{% endif %}</td><td>{{ target.last_login|date:'j M Y, g:i A'|default:'Never' }}</td><td class="text-end">
-      {% if target.groups.all.0.name == 'Admin' %}<form method="post" action="{% url 'adminpanel:staff_account_action' target.pk 'staff' %}" class="d-inline">{% csrf_token %}<button class="btn btn-sm btn-outline-primary" type="submit">Make staff</button></form>{% else %}<form method="post" action="{% url 'adminpanel:staff_account_action' target.pk 'admin' %}" class="d-inline">{% csrf_token %}<button class="btn btn-sm btn-outline-primary" type="submit">Make admin</button></form>{% endif %}
-      {% if target.is_active %}<form method="post" action="{% url 'adminpanel:staff_account_action' target.pk 'off' %}" class="d-inline">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Switch off</button></form>{% else %}<form method="post" action="{% url 'adminpanel:staff_account_action' target.pk 'on' %}" class="d-inline">{% csrf_token %}<button class="btn btn-sm btn-outline-primary" type="submit">Switch on</button></form>{% endif %}
+      {% if target.groups.all.0.name == 'Admin' %}<form method="post" action="{% url 'adminpanel:staff_account_action' target.pk 'staff' %}" class="d-inline">{% csrf_token %}<button class="panel-text-action" type="submit">Make staff</button></form>{% else %}<form method="post" action="{% url 'adminpanel:staff_account_action' target.pk 'admin' %}" class="d-inline">{% csrf_token %}<button class="panel-text-action" type="submit">Make admin</button></form>{% endif %}
+      {% if target.is_active %}<form method="post" action="{% url 'adminpanel:staff_account_action' target.pk 'off' %}" class="d-inline">{% csrf_token %}<button class="panel-text-action ms-2" type="submit">Switch off</button></form>{% else %}<form method="post" action="{% url 'adminpanel:staff_account_action' target.pk 'on' %}" class="d-inline">{% csrf_token %}<button class="panel-text-action ms-2" type="submit">Switch on</button></form>{% endif %}
     </td></tr>
   {% empty %}<tr><td colspan="6">No staff accounts.</td></tr>{% endfor %}</tbody>
 </table></div></div>
 <div class="card p-4 form-narrow"><h2 class="h5">Add staff account</h2>
-  <form method="post">{% csrf_token %}{% for field in form %}{% include 'adminpanel/_form_field.html' with field=field %}{% endfor %}<button class="btn btn-primary" type="submit">Create account</button></form>
+  <form method="post">{% csrf_token %}{% for field in form %}{% include 'adminpanel/_form_field.html' with field=field %}{% endfor %}<button class="panel-text-action" type="submit">Create account</button></form>
 </div>
 {% endblock %}

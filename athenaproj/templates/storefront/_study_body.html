@@ -1,7 +1,7 @@
 {% load athena_format %}
 <div class="container py-5">
   {% if not preview %}<a href="{% url 'storefront:studies' %}">Back</a>{% endif %}
-  <div class="mt-4"><span class="badge text-bg-light">{{ study.category.name }}</span>{% if study.accepts_healthy_volunteers %} <span class="badge text-bg-light">Healthy volunteers welcome</span>{% endif %}</div>
+  <div class="mt-4"><span class="badge category-chip">{{ study.category.name }}</span>{% if study.accepts_healthy_volunteers %} <span class="badge category-chip">Healthy Volunteers</span>{% endif %}</div>
   <h1 class="mt-3">{{ study.title }}</h1>
   <p>{{ study.organisation.name }} · {{ study.get_study_type_display }} · {% if study.review_count %}{{ study.review_average|floatformat:1 }} / 5 ({{ study.review_count }} review{% if study.review_count != 1 %}s{% endif %}){% else %}No reviews yet{% endif %}</p>
   <div class="row g-4 mt-2">

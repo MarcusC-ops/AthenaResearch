@@ -84,8 +84,10 @@
       <section class="card p-4 mb-3">
         <h2>Next step</h2>
         {% if application.status == 'under_review' %}
-          <form method="post" class="mb-2">{% csrf_token %}<input type="hidden" name="action" value="shortlist"><button class="btn btn-primary" type="submit">Shortlist</button></form>
-          <a class="btn btn-outline-primary" href="{% url 'adminpanel:application_not_selected' application.pk %}">Mark not selected</a>
+          <div class="application-next-step-actions">
+            <form method="post">{% csrf_token %}<input type="hidden" name="action" value="shortlist"><button class="btn btn-primary" type="submit">Shortlist</button></form>
+            <a class="btn btn-outline-primary" href="{% url 'adminpanel:application_not_selected' application.pk %}">Mark not selected</a>
+          </div>
         {% elif application.status == 'waitlisted' %}
           <form method="post" class="mb-2">{% csrf_token %}<input type="hidden" name="action" value="move_to_review"><button class="btn btn-primary" type="submit">Move to review</button></form>
           <a class="btn btn-outline-primary" href="{% url 'adminpanel:application_not_selected' application.pk %}">Mark not selected</a>
@@ -127,15 +129,14 @@
       </section>
 
       <section class="card p-4">
-        <h2>ML-2 priority</h2>
+        <h2>Priority Score</h2>
         <p><span class="priority-pill priority-{{ application.ml2_band }}">{{ application.get_ml2_band_display }}</span></p>
         {% if priority_percentage != None %}
-          <p>{{ priority_percentage }}% predicted chance of passing screening</p>
+          <p>{{ priority_percentage }}% chance of passing</p>
         {% else %}
           <p>No screening probability is available.</p>
         {% endif %}
-        <p>Model version {{ application.ml2_model_version|default:'Not recorded' }}</p>
-        <h3>Key inputs to the model</h3>
+        <h3>Model Inputs</h3>
         <dl class="row">
           {% for item in model_inputs %}
             <dt class="col-sm-8">{{ item.label }}</dt><dd class="col-sm-4">{{ item.value }}</dd>

@@ -2,9 +2,15 @@
 {% load athena_filters %}
 {% block content %}
 <h1>Platform insights</h1>
-<form method="get" class="row g-3 mb-4">
-  <div class="col-md-5">{% include 'adminpanel/_form_field.html' with field=form.organisation_id %}</div>
-  <div class="col-md-5">{% include 'adminpanel/_form_field.html' with field=form.study_id %}</div>
+<form method="get" class="row g-3 mb-4 platform-insights-filters">
+  <div class="col-md-5">
+    <label class="visually-hidden" for="{{ form.organisation_id.id_for_label }}">Organisation</label>
+    {{ form.organisation_id }}
+  </div>
+  <div class="col-md-5">
+    <label class="visually-hidden" for="{{ form.study_id.id_for_label }}">Study</label>
+    {{ form.study_id }}
+  </div>
   <div class="col-md-2 d-flex align-items-end"><button class="btn btn-primary rounded-pill mb-3" type="submit">Apply</button></div>
 </form>
 <div class="row g-3 mb-4">

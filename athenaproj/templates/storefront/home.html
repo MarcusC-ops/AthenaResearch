@@ -1,29 +1,28 @@
 {% extends 'storefront/base_storefront.html' %}
 
 {% load athena_format %}
+{% load static %}
 
 {% block title %}Home · Athena{% endblock %}
 
 {% block content %}
-  <section class="hero py-5">
-    <div class="container py-5">
-      <div class="hero-content py-5">
-        <h1>Be part of the next Health Discovery.</h1>
-        <form action="{% url 'storefront:studies' %}" method="get" class="row g-2 mt-4">
-          <div class="col-md-9">
-            <label class="visually-hidden" for="home-search">Search studies</label>
-            <input id="home-search" name="q" class="form-control form-control-lg" placeholder='Search "diabetes", "sleep" or "healthy volunteers"'>
-          </div>
-          <div class="col-md-3"><button class="btn btn-primary btn-lg w-100" type="submit">Search</button></div>
-        </form>
-        <p class="mt-3 mb-0">IRB-approved · Withdraw anytime · Compensation provided</p>
+  <section class="container home-hero-wrap pt-0 pb-3">
+    <div class="home-hero">
+      <img class="home-hero-image" src="{% static 'images/athena-hero.png' %}" alt="">
+      <div class="home-hero-copy">
+        <h1><span>Find research</span><span>studies that</span><span>fit your life.</span></h1>
       </div>
+      <form action="{% url 'storefront:studies' %}" method="get" class="home-hero-search">
+        <label class="visually-hidden" for="home-search">Search studies</label>
+        <input id="home-search" name="q" class="form-control form-control-lg" placeholder="Enter a test or panel">
+        <button class="btn btn-primary btn-lg" type="submit">Search</button>
+      </form>
     </div>
   </section>
 
-  <section class="container py-5">
+  <section class="container py-5 home-categories">
     <div class="d-flex justify-content-between align-items-end mb-3">
-      <div><small class="text-uppercase">Browse</small><h2>Explore by category</h2></div>
+      <div><h2>Explore by category</h2></div>
       <a href="{% url 'storefront:studies' %}">View all</a>
     </div>
     <div class="row g-3">
@@ -39,7 +38,7 @@
     </div>
   </section>
 
-  <section class="container pb-5">
+  <section class="container py-5">
     {% if personal_items %}
       <div class="d-flex justify-content-between align-items-end mb-3">
         <h2>Studies for you</h2>

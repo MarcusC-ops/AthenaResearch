@@ -4,50 +4,64 @@
   <div class="athena-panel-shell">
     <header class="athena-topbar">
       <div class="d-flex align-items-center justify-content-between">
-        <span class="wordmark text-white">Athena</span>
-        <span class="ms-3 border border-white rounded-pill px-2 py-1 text-white small">PANEL</span>
-        <div class="d-flex align-items-center gap-3 ms-auto text-white">
-          {% if user_role == 'admin' %}<span class="border border-white rounded-pill px-2 py-1 small">Platform Admin</span>{% elif user_role == 'staff' %}<span class="border border-white rounded-pill px-2 py-1 small">Platform Staff</span>{% elif user.staff_profile.organisation %}<span>{{ user.staff_profile.organisation }}</span>{% endif %}
-          <a href="/panel/notifications/" class="text-white text-decoration-none">Notifications {% if panel_unread_count %}<span class="badge bg-light text-dark">{{ panel_unread_count }}</span>{% endif %}</a>
-          <span>{{ user.get_full_name }}</span>
-          <form method="post" action="/panel/logout/">{% csrf_token %}<button class="btn btn-outline-light btn-sm" type="submit">Sign out</button></form>
+        <a href="/panel/" class="wordmark text-white text-decoration-none">Athena</a>
+        <div class="d-flex align-items-center gap-4 ms-auto text-white">
+          <a href="/panel/notifications/" class="topbar-action text-white text-decoration-none">Notifications{% if panel_unread_count %} ({{ panel_unread_count }}){% endif %}</a>
+          <span class="topbar-action">{{ user.get_full_name }}</span>
+          <form method="post" action="/panel/logout/">{% csrf_token %}<button class="topbar-action sign-out-action" type="submit">Sign out</button></form>
         </div>
       </div>
     </header>
 
     <div class="d-flex">
       <aside class="athena-sidebar p-4">
-        <div class="text-muted small mb-2">OVERVIEW</div>
-        <a href="/panel/" class="d-block mb-4">Dashboard</a>
-        {% if user_role == 'coordinator' or user_role == 'staff' or user_role == 'admin' %}<a href="/panel/insights/" class="d-block mb-4">Insights</a>{% endif %}
+        <nav class="panel-sidebar-nav" aria-label="Panel">
+        <section class="sidebar-section">
+          <div class="sidebar-section-title">Overview</div>
+          <a href="/panel/">Dashboard</a>
+          {% if user_role == 'coordinator' or user_role == 'staff' or user_role == 'admin' %}<a href="/panel/insights/">Insights</a>{% endif %}
+        </section>
         {% if user_role == 'staff' or user_role == 'admin' %}
-          <div class="text-muted small mb-2">MACHINE LEARNING</div>
-          <a href="{% url 'adminpanel:ml_monitor' %}" class="d-block mb-4">ML monitor</a>
+          <section class="sidebar-section">
+            <div class="sidebar-section-title">Machine Learning</div>
+            <a href="{% url 'adminpanel:ml_monitor' %}">ML monitor</a>
+          </section>
         {% endif %}
-        <div class="text-muted small mb-2">STUDIES</div>
-        <a href="{% url 'adminpanel:study_list' %}" class="d-block mb-4">Study listings</a>
-        {% if user_role == 'coordinator' %}<a href="/panel/participation/" class="d-block mb-4">Participation</a>{% endif %}
+        <section class="sidebar-section">
+          <div class="sidebar-section-title">Studies</div>
+          <a href="{% url 'adminpanel:study_list' %}">Study listings</a>
+          {% if user_role == 'coordinator' %}<a href="/panel/participation/">Participation</a>{% endif %}
+        </section>
         {% if user_role == 'staff' or user_role == 'admin' %}
-          <div class="text-muted small mb-2">OPERATIONS</div>
-          <a href="/panel/moderation/" class="d-block mb-2">Moderation</a>
-          <a href="/panel/payouts/" class="d-block mb-2">Payouts</a>
-          <a href="/panel/reviews/" class="d-block mb-2">Reviews</a>
-          <a href="/panel/support/" class="d-block mb-4">Support</a>
-          <div class="text-muted small mb-2">RECORDS</div>
-          <a href="/panel/participants/" class="d-block mb-2">Participants</a>
-          <a href="/panel/organisations/" class="d-block mb-2">Organisations</a>
-          <a href="/panel/taxonomy/" class="d-block mb-4">Taxonomy</a>
+          <section class="sidebar-section">
+            <div class="sidebar-section-title">Operations</div>
+            <a href="/panel/moderation/">Moderation</a>
+            <a href="/panel/payouts/">Payouts</a>
+            <a href="/panel/reviews/">Reviews</a>
+            <a href="/panel/support/">Support</a>
+          </section>
+          <section class="sidebar-section">
+            <div class="sidebar-section-title">Records</div>
+            <a href="/panel/participants/">Participants</a>
+            <a href="/panel/organisations/">Organisations</a>
+            <a href="/panel/taxonomy/">Taxonomy</a>
+          </section>
           {% if user_role == 'admin' %}
-            <div class="text-muted small mb-2">ADMIN</div>
-            <a href="{% url 'adminpanel:ml_settings' %}" class="d-block mb-2">ML settings</a>
-            <a href="{% url 'adminpanel:staff_accounts' %}" class="d-block mb-2">Staff accounts</a>
-            <a href="{% url 'adminpanel:demo_data' %}" class="d-block mb-4">Demo data</a>
+            <section class="sidebar-section">
+              <div class="sidebar-section-title">Admin</div>
+              <a href="{% url 'adminpanel:ml_settings' %}">ML settings</a>
+              <a href="{% url 'adminpanel:staff_accounts' %}">Staff accounts</a>
+              <a href="{% url 'adminpanel:demo_data' %}">Demo data</a>
+            </section>
           {% endif %}
         {% endif %}
-        <div class="text-muted small mb-2">STOREFRONT</div>
-        <a href="/" class="d-block">View storefront</a>
+        <section class="sidebar-section">
+          <div class="sidebar-section-title">Storefront</div>
+          <a href="/">View storefront</a>
+        </section>
+        </nav>
       </aside>
-      <main class="flex-grow-1 p-4">
+      <main class="panel-content flex-grow-1 p-4">
         {% block content %}{% endblock %}
       </main>
     </div>

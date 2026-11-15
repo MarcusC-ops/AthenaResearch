@@ -101,6 +101,7 @@ class ApplyQuestionsForm(forms.Form):
         self.fields['preferred_site'] = forms.ModelChoiceField(
             label='Preferred site',
             queryset=study.sites.all(),
+            empty_label='Blank',
         )
         self.fields['availability'] = forms.ChoiceField(
             label='When you are usually free',
