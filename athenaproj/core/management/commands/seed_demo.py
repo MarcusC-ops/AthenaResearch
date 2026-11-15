@@ -2,27 +2,35 @@
 
 import calendar
 import os
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import Group, User
 from django.utils import timezone
 
 from core.models import (
+    Appointment,
     Application,
     Condition,
     Organisation,
+    Payout,
     PreScreenQuestion,
     Region,
+    Review,
     Site,
     Study,
     StudyCategory,
+    SupportRequest,
     ParticipantProfile,
     Shortlist,
     StaffProfile,
 )
 from core.validators import normalise_sg_mobile
-from core.services import is_eligible, submit_application
+from core.services import (
+    change_status,
+    is_eligible,
+    submit_application,
+)
 
 
 def add_months(value, months):
@@ -46,6 +54,7 @@ class Command(BaseCommand):
         self.create_questions(studies)
         self.create_people(organisations, regions, conditions)
         self.create_full_study_applications(studies, regions, conditions)
+        self.create_after_sales(studies, sites)
         self.create_shortlists(studies)
 
         for label, model in (
@@ -56,6 +65,11 @@ class Command(BaseCommand):
             ('Sites', Site),
             ('Studies', Study),
             ('Pre-screen questions', PreScreenQuestion),
+            ('Applications', Application),
+            ('Appointments', Appointment),
+            ('Payouts', Payout),
+            ('Reviews', Review),
+            ('Support requests', SupportRequest),
         ):
             self.stdout.write(f'{label}: {model.objects.count()}')
         self.stdout.write(
@@ -238,13 +252,17 @@ class Command(BaseCommand):
             ParticipantProfile.objects.filter(user__username__startswith='demo')
             .order_by('id')
         )
+        total_applications = Application.objects.filter(
+            participant__user__username__startswith='demo'
+        ).count()
+        if total_applications >= 30:
+            return
         public_studies = [
             study for study in studies.values() if study.status in (Study.Status.PUBLISHED, Study.Status.FULL)
         ]
-        added = 0
         for profile in applicants:
             for study in public_studies:
-                if added >= 30:
+                if total_applications >= 30:
                     return
                 if Application.objects.filter(participant=profile, study=study).exists():
                     continue
@@ -263,7 +281,224 @@ class Command(BaseCommand):
                     profile.availability or 'flexible', True,
                 )
                 if created:
-                    added += 1
+                    total_applications += 1
+
+    def create_after_sales(self, studies, sites):
+        flu_study = studies['Exercise and the Immune Response to a Seasonal Flu Vaccine']
+        blood_study = studies['Healthy Volunteer Blood Sample Bank for Lab Test Development']
+        metabolic_study = studies['Food Choices and Fatty Liver Health']
+        memory_study = studies['Memory Games and Bilingual Brains']
+        aisyah = ParticipantProfile.objects.get(user__username='aisyah@example.com')
+        mr_tan = ParticipantProfile.objects.get(user__username='mrtan@example.com')
+
+        aisyah_application = self.get_or_submit_application(
+            aisyah,
+            flu_study,
+            sites['Kent Ridge CRC, Lower Kent Ridge Clinic'],
+        )
+        self.move_application_to(
+            aisyah_application,
+            Application.Status.ENROLLED,
+        )
+        self.create_aisyah_after_sales(
+            aisyah_application,
+            sites['Kent Ridge CRC, Lower Kent Ridge Clinic'],
+        )
+
+        self.get_or_submit_application(
+            mr_tan,
+            blood_study,
+            sites['Kent Ridge CRC, Lower Kent Ridge Clinic'],
+            disqualify=True,
+        )
+        self.get_or_submit_application(
+            mr_tan,
+            metabolic_study,
+            metabolic_study.sites.first(),
+        )
+
+        ratings = [5, 4, 4, 3]
+        for index, rating in enumerate(ratings, 1):
+            profile = ParticipantProfile.objects.get(
+                user__username=f'demo{index:02d}@example.com'
+            )
+            application = self.get_or_submit_application(
+                profile,
+                memory_study,
+                memory_study.sites.first(),
+            )
+            self.move_application_to(application, Application.Status.COMPLETED)
+            Review.objects.update_or_create(
+                participant=profile,
+                study=memory_study,
+                defaults={
+                    'rating': rating,
+                    'comment': (
+                        'The study team explained each step clearly.'
+                        if index == 1 else ''
+                    ),
+                    'status': Review.Status.APPROVED,
+                    'rejection_reason': '',
+                    'moderated_by': None,
+                    'moderated_at': timezone.now(),
+                },
+            )
+
+        pending_profile = ParticipantProfile.objects.get(
+            user__username='demo05@example.com'
+        )
+        pending_application = self.get_or_submit_application(
+            pending_profile,
+            memory_study,
+            memory_study.sites.first(),
+        )
+        self.move_application_to(pending_application, Application.Status.COMPLETED)
+        Review.objects.update_or_create(
+            participant=pending_profile,
+            study=memory_study,
+            defaults={
+                'rating': 5,
+                'comment': 'A clear and interesting experience.',
+                'status': Review.Status.PENDING,
+                'rejection_reason': '',
+                'moderated_by': None,
+                'moderated_at': None,
+            },
+        )
+
+    def get_or_submit_application(
+        self, profile, study, site, disqualify=False
+    ):
+        questions = list(study.pre_screen_questions.all())
+        answers = {}
+        for question in questions:
+            answer = question.preferred_answer or question.option_list()[0]
+            if disqualify and question.disqualifying_answer:
+                answer = question.disqualifying_answer
+            answers[question.pk] = answer
+        application, _ = submit_application(
+            profile,
+            study,
+            answers,
+            site.pk,
+            profile.availability or Application.Availability.FLEXIBLE,
+            True,
+        )
+        return application
+
+    def move_application_to(self, application, target_status):
+        if application.status == target_status:
+            return
+        path = [
+            Application.Status.UNDER_REVIEW,
+            Application.Status.SHORTLISTED,
+            Application.Status.SCREENING_SCHEDULED,
+            Application.Status.SCREENING_PASSED,
+            Application.Status.ENROLLED,
+        ]
+        if target_status == Application.Status.COMPLETED:
+            path.append(Application.Status.COMPLETED)
+        if application.status in (
+            Application.Status.SUBMITTED,
+            Application.Status.WAITLISTED,
+        ):
+            change_status(
+                application,
+                Application.Status.UNDER_REVIEW,
+                actor_role='coordinator',
+                note='Application reviewed for the demonstration.',
+            )
+        if application.status not in path:
+            raise ValueError(
+                f'Cannot seed {target_status} from {application.status}.'
+            )
+        start = path.index(application.status) + 1
+        for status in path[start:]:
+            change_status(
+                application,
+                status,
+                actor_role='coordinator',
+                note='Demonstration application progress.',
+            )
+
+    def create_aisyah_after_sales(self, application, site):
+        now = timezone.now()
+        screening_at = timezone.make_aware(
+            datetime(2026, 9, 8, 18, 30),
+            timezone.get_current_timezone(),
+        )
+        Appointment.objects.update_or_create(
+            application=application,
+            kind=Appointment.Kind.SCREENING,
+            visit_number=None,
+            defaults={
+                'site': site,
+                'scheduled_for': screening_at,
+                'status': Appointment.Status.ATTENDED,
+                'confirmed_at': screening_at - timedelta(days=1),
+            },
+        )
+        today = timezone.localdate()
+        visit_dates = [
+            today - timedelta(days=42),
+            today - timedelta(days=28),
+            today - timedelta(days=14),
+            today + timedelta(days=7),
+            today + timedelta(days=21),
+        ]
+        visit_statuses = [
+            Appointment.Status.ATTENDED,
+            Appointment.Status.ATTENDED,
+            Appointment.Status.ATTENDED,
+            Appointment.Status.CONFIRMED,
+            Appointment.Status.PROPOSED,
+        ]
+        for number, (visit_date, status) in enumerate(
+            zip(visit_dates, visit_statuses),
+            1,
+        ):
+            scheduled_for = timezone.make_aware(
+                datetime.combine(visit_date, time(18, 0)),
+                timezone.get_current_timezone(),
+            )
+            Appointment.objects.update_or_create(
+                application=application,
+                kind=Appointment.Kind.VISIT,
+                visit_number=number,
+                defaults={
+                    'site': site,
+                    'scheduled_for': scheduled_for,
+                    'status': status,
+                    'confirmed_at': (
+                        now - timedelta(days=1)
+                        if status == Appointment.Status.CONFIRMED else None
+                    ),
+                },
+            )
+        Payout.objects.update_or_create(
+            application=application,
+            reference='PN-2026-000001',
+            defaults={
+                'amount': '140.00',
+                'visits_counted': 3,
+                'status': Payout.Status.PAID,
+                'requested_by': None,
+                'paid_by': None,
+                'paid_at': now - timedelta(days=35),
+                'rejection_reason': '',
+            },
+        )
+        SupportRequest.objects.get_or_create(
+            application=application,
+            topic=SupportRequest.Topic.COMPENSATION,
+            question='When will my next payout be made?',
+            defaults={
+                'status': SupportRequest.Status.OPEN,
+                'reply': '',
+                'replied_by': None,
+                'replied_at': None,
+            },
+        )
 
     def create_regions(self):
         values = [
@@ -573,6 +808,8 @@ class Command(BaseCommand):
                     accepts_healthy_volunteers=True,
                     max_age=75,
                 )
+            elif title == 'Food Choices and Fatty Liver Health':
+                defaults.update(max_age=70)
             elif title == 'Sleep Habits of Shift Workers':
                 defaults.update(max_age=60, show_compensation=False)
             if index in (2, 4, 6, 8, 10, 12):

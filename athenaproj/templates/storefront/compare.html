@@ -17,7 +17,7 @@
         <tr><th>Sites</th>{% for study in studies %}<td>{% for site in study.sites.all %}{% if not forloop.first %}, {% endif %}{{ site.name }}{% endfor %}</td>{% endfor %}</tr>
         <tr><th>Compensation</th>{% for study in studies %}<td>{% if study.show_compensation %}{{ study.compensation_amount|money }}{% else %}Compensation for time and travel is provided{% endif %}</td>{% endfor %}</tr>
         <tr><th>Who can take part</th>{% for study in studies %}<td class="small">Ages {{ study.min_age }} to {{ study.max_age }}<br>{{ study.get_sex_eligibility_display }}<br>{% if study.accepts_healthy_volunteers %}Healthy volunteers welcome{% else %}For people living with a health condition{% endif %}<br>{{ study.get_smoker_rule_display }}<br>{% if study.regions.exists %}{% for region in study.regions.all %}{% if not forloop.first %}, {% endif %}{{ region.name }}{% endfor %}{% else %}Anywhere in Singapore{% endif %}</td>{% endfor %}</tr>
-        <tr><th>Rating</th>{% for study in studies %}<td>No reviews yet</td>{% endfor %}</tr>
+        <tr><th>Rating</th>{% for study in studies %}<td>{% if study.review_count %}{{ study.review_average|floatformat:1 }} / 5 ({{ study.review_count }} review{% if study.review_count != 1 %}s{% endif %}){% else %}No reviews yet{% endif %}</td>{% endfor %}</tr>
       </tbody>
     </table>
   </div>

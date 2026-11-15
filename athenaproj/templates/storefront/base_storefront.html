@@ -8,7 +8,8 @@
         <a href="{% url 'storefront:studies' %}" class="text-decoration-none text-primary">Studies</a>
         {% if user.is_authenticated and user.participant_profile %}
           <a href="{% url 'storefront:for_you' %}" class="text-decoration-none text-primary">For you</a>
-        <a href="{% url 'storefront:shortlist' %}" class="text-decoration-none text-primary">Shortlist ({{ shortlist_count }})</a>
+          <a href="{% url 'storefront:applications' %}" class="text-decoration-none text-primary">My applications</a>
+          <a href="{% url 'storefront:shortlist' %}" class="text-decoration-none text-primary">Shortlist ({{ shortlist_count }})</a>
           <div class="dropdown">
             <a class="dropdown-toggle text-decoration-none text-primary" href="#" data-bs-toggle="dropdown">{{ user.first_name }}</a>
             <ul class="dropdown-menu">

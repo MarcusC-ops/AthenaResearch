@@ -696,3 +696,169 @@ class AppSetting(TimeStampedModel):
 
     def __str__(self):
         return 'Athena application settings'
+
+
+class Appointment(TimeStampedModel):
+    class Kind(models.TextChoices):
+        SCREENING = 'screening', 'Screening'
+        VISIT = 'visit', 'Visit'
+
+    class Status(models.TextChoices):
+        PROPOSED = 'proposed', 'Proposed'
+        CONFIRMED = 'confirmed', 'Confirmed'
+        ATTENDED = 'attended', 'Attended'
+        MISSED = 'missed', 'Missed'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    application = models.ForeignKey(
+        Application, on_delete=models.CASCADE, related_name='appointments'
+    )
+    site = models.ForeignKey(Site, on_delete=models.RESTRICT, related_name='appointments')
+    kind = models.CharField(max_length=12, choices=Kind.choices)
+    visit_number = models.PositiveIntegerField(null=True, blank=True)
+    scheduled_for = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(
+        max_length=12, choices=Status.choices, default=Status.PROPOSED
+    )
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        label = self.get_kind_display()
+        if self.visit_number:
+            label = f'{label} {self.visit_number}'
+        return f'{self.application.reference}: {label}'
+
+    def clean(self):
+        super().clean()
+        if not self.application_id:
+            return
+        if self.kind == self.Kind.SCREENING and self.visit_number is not None:
+            raise ValidationError({'visit_number': 'Screening appointments do not have a visit number.'})
+        if self.kind == self.Kind.VISIT and (
+            self.visit_number is None
+            or not 1 <= self.visit_number <= self.application.study.total_visits
+        ):
+            raise ValidationError({
+                'visit_number': 'Choose a visit number within the study visit plan.'
+            })
+
+
+class Payout(TimeStampedModel):
+    class Status(models.TextChoices):
+        REQUESTED = 'requested', 'Requested'
+        PAID = 'paid', 'Paid'
+        REJECTED = 'rejected', 'Rejected'
+
+    application = models.ForeignKey(
+        Application, on_delete=models.RESTRICT, related_name='payouts'
+    )
+    amount = models.DecimalField(max_digits=8, decimal_places=2)
+    visits_counted = models.PositiveIntegerField(default=0)
+    status = models.CharField(
+        max_length=12, choices=Status.choices, default=Status.REQUESTED
+    )
+    reference = models.CharField(max_length=20, unique=True, null=True, blank=True)
+    requested_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='requested_payouts',
+    )
+    paid_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='paid_payouts',
+    )
+    paid_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(blank=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name='payout_amount_positive',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.application.reference}: {self.amount}'
+
+    def clean(self):
+        super().clean()
+        if self.status == self.Status.REJECTED and not self.rejection_reason.strip():
+            raise ValidationError({
+                'rejection_reason': 'Enter a reason for rejecting this payout.'
+            })
+
+
+class Review(TimeStampedModel):
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending approval'
+        APPROVED = 'approved', 'Published'
+        REJECTED = 'rejected', 'Not approved'
+
+    participant = models.ForeignKey(
+        ParticipantProfile, on_delete=models.CASCADE, related_name='reviews'
+    )
+    study = models.ForeignKey(Study, on_delete=models.CASCADE, related_name='reviews')
+    rating = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)]
+    )
+    comment = models.CharField(max_length=1000, blank=True)
+    status = models.CharField(
+        max_length=12, choices=Status.choices, default=Status.PENDING
+    )
+    rejection_reason = models.TextField(blank=True)
+    moderated_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='moderated_reviews',
+    )
+    moderated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['participant', 'study'], name='unique_review_pair'
+            ),
+            models.CheckConstraint(
+                condition=Q(rating__gte=1) & Q(rating__lte=5),
+                name='review_rating_range',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.study.title}: {self.rating} / 5'
+
+    def clean(self):
+        super().clean()
+        if self.status == self.Status.REJECTED and not self.rejection_reason.strip():
+            raise ValidationError({
+                'rejection_reason': 'Enter a reason for not approving this review.'
+            })
+
+
+class SupportRequest(TimeStampedModel):
+    class Topic(models.TextChoices):
+        APPLICATION = 'application', 'My application'
+        APPOINTMENTS = 'appointments', 'Appointments and visits'
+        COMPENSATION = 'compensation', 'Compensation'
+        OTHER = 'other', 'Something else'
+
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Waiting for a reply'
+        ANSWERED = 'answered', 'Answered'
+
+    application = models.ForeignKey(
+        Application, on_delete=models.CASCADE, related_name='support_requests'
+    )
+    topic = models.CharField(max_length=20, choices=Topic.choices)
+    question = models.CharField(max_length=1000)
+    reply = models.TextField(blank=True)
+    replied_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='replied_support_requests',
+    )
+    replied_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(
+        max_length=12, choices=Status.choices, default=Status.OPEN
+    )
+
+    def __str__(self):
+        return f'{self.application.reference}: {self.get_topic_display()}'

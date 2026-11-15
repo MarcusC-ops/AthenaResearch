@@ -7,6 +7,7 @@ from core.models import (
     ParticipantProfile,
     Study,
     StudyCategory,
+    SupportRequest,
 )
 from core.services import list_regions
 
@@ -114,6 +115,41 @@ class ApplyQuestionsForm(forms.Form):
                 question_id = int(field_name.split('_', 1)[1])
                 answers[question_id] = value
         return answers
+
+
+class WithdrawalForm(forms.Form):
+    reason = forms.CharField(
+        required=False,
+        label='Reason (optional)',
+        widget=forms.Textarea(attrs={'rows': 4, 'class': 'form-control'}),
+    )
+
+
+class ReviewForm(forms.Form):
+    rating = forms.ChoiceField(
+        label='How would you rate this study?',
+        choices=[(rating, str(rating)) for rating in range(1, 6)],
+        widget=forms.RadioSelect(attrs={'class': 'form-check-input'}),
+    )
+    comment = forms.CharField(
+        required=False,
+        max_length=1000,
+        label='Tell others what to expect (optional)',
+        widget=forms.Textarea(attrs={'rows': 5, 'class': 'form-control'}),
+    )
+
+
+class SupportRequestForm(forms.Form):
+    topic = forms.ChoiceField(
+        label='What is it about?',
+        choices=[('', 'Choose one'), *SupportRequest.Topic.choices],
+        widget=forms.Select(attrs={'class': 'form-select'}),
+    )
+    question = forms.CharField(
+        max_length=1000,
+        label='Your question',
+        widget=forms.Textarea(attrs={'rows': 5, 'class': 'form-control'}),
+    )
 
 
 class ProfileForm(forms.ModelForm):

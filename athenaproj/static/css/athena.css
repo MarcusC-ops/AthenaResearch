@@ -69,3 +69,28 @@ a {
 .form-select {
   border-radius: 12px;
 }
+
+.what-next {
+  border-left: 4px solid var(--athena-blue);
+}
+
+.application-timeline {
+  position: relative;
+}
+
+.timeline-dot {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  margin-top: 0.25rem;
+  border: 2px solid var(--athena-blue);
+  border-radius: 50%;
+}
+
+.timeline-dot-current {
+  background: var(--athena-blue);
+}
+
+.progress-bar {
+  background-color: var(--athena-blue);
+}

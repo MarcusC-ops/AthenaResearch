@@ -4,23 +4,37 @@ from django.http import Http404
 from django.contrib import messages
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from core.models import Application, Study
+from core.models import Appointment, Application, Review, Study
 from core.services import (
+    OPEN_STATUSES,
+    PARTICIPANT_STATUS_LABELS,
+    InvalidStatusMove,
     NotEligible,
     alternatives_for,
+    approved_reviews,
     category_tiles,
     check_eligibility,
+    confirm_appointment as confirm_application_appointment,
+    create_support_request,
     get_public_study,
+    get_my_application,
     is_eligible,
+    my_applications,
     popular_studies,
+    payouts_summary,
     search_studies,
     for_you_feed,
     personal_row,
     profile_ready,
     refresh_interest_predictions,
+    save_review,
     save_profile,
+    timeline,
+    what_happens_next,
+    withdraw_application,
     add_to_shortlist,
     compare_studies,
     remove_from_shortlist,
@@ -28,7 +42,14 @@ from core.services import (
     submit_application,
 )
 
-from .forms import ApplyQuestionsForm, StudyFilterForm, ProfileForm
+from .forms import (
+    ApplyQuestionsForm,
+    ProfileForm,
+    ReviewForm,
+    StudyFilterForm,
+    SupportRequestForm,
+    WithdrawalForm,
+)
 from .decorators import participant_required
 
 
@@ -103,7 +124,13 @@ def study_detail(request, slug):
     return render(
         request,
         'storefront/study_detail.html',
-        {'study': study, 'is_shortlisted': is_shortlisted, 'application': application, 'apply_step': apply_step},
+        {
+            'study': study,
+            'is_shortlisted': is_shortlisted,
+            'application': application,
+            'apply_step': apply_step,
+            'approved_reviews': approved_reviews(study),
+        },
     )
 
 
@@ -290,26 +317,201 @@ def apply_step3(request, slug):
 def application_detail(request, application_id):
     profile = request.user.participant_profile
     try:
-        application = Application.objects.select_related('study','participant').get(pk=application_id)
+        application = get_my_application(profile, application_id)
     except Application.DoesNotExist:
         raise Http404
-    if application.participant_id != profile.pk:
-        raise Http404
+    appointments = application.appointments.select_related('site').order_by('scheduled_for', 'id')
+    screening_appointment = appointments.filter(kind=Appointment.Kind.SCREENING).first()
+    visits = list(appointments.filter(kind=Appointment.Kind.VISIT))
+    attended_visits = sum(
+        visit.status == Appointment.Status.ATTENDED for visit in visits
+    )
+    payouts, total_paid = payouts_summary(application)
+    review = application.study.reviews.filter(participant=profile).first()
+    support_requests = application.support_requests.select_related(
+        'replied_by'
+    ).order_by('-created_at', '-id')
+    alternatives = []
+    if application.status in (
+        Application.Status.AUTO_DECLINED,
+        Application.Status.NOT_SELECTED,
+        Application.Status.SCREENING_FAILED,
+    ):
+        alternatives = alternatives_for(profile, application.study, limit=3)
     return render(
         request,
         'storefront/application_detail.html',
-        {'application': application},
+        {
+            'application': application,
+            'timeline': timeline(application),
+            'screening_appointment': screening_appointment,
+            'visits': visits,
+            'attended_visits': attended_visits,
+            'visit_percentage': (
+                round(attended_visits * 100 / application.study.total_visits)
+                if application.study.total_visits else 0
+            ),
+            'payouts': payouts,
+            'total_paid': total_paid,
+            'review': review,
+            'support_requests': support_requests,
+            'what_happens_next': what_happens_next(application),
+            'alternatives': alternatives,
+            'is_open': application.status in OPEN_STATUSES,
+            'status_label': PARTICIPANT_STATUS_LABELS[application.status],
+            'now': timezone.now(),
+        },
     )
+
+
+@participant_required
+def applications(request):
+    open_applications, finished_applications = my_applications(
+        request.user.participant_profile
+    )
+    return render(
+        request,
+        'storefront/applications.html',
+        {
+            'open_applications': open_applications,
+            'finished_applications': finished_applications,
+        },
+    )
+
+
+@participant_required
+def withdraw_application_view(request, application_id):
+    try:
+        application = get_my_application(
+            request.user.participant_profile, application_id
+        )
+    except Application.DoesNotExist:
+        raise Http404
+    if application.status not in OPEN_STATUSES:
+        return render(
+            request,
+            'storefront/withdraw_application.html',
+            {'application': application, 'closed': True},
+        )
+    form = WithdrawalForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        try:
+            withdraw_application(
+                request.user.participant_profile,
+                application,
+                form.cleaned_data['reason'],
+            )
+        except InvalidStatusMove:
+            messages.error(request, 'This application is already closed.')
+            return redirect('storefront:application_detail', application_id=application.pk)
+        messages.success(request, 'You have withdrawn from this study.')
+        return redirect('storefront:application_detail', application_id=application.pk)
+    return render(
+        request,
+        'storefront/withdraw_application.html',
+        {'application': application, 'form': form},
+    )
+
+
+@participant_required
+def review_application(request, application_id):
+    try:
+        application = get_my_application(
+            request.user.participant_profile, application_id
+        )
+    except Application.DoesNotExist:
+        raise Http404
+    review = application.study.reviews.filter(
+        participant=request.user.participant_profile
+    ).first()
+    if application.status != Application.Status.COMPLETED:
+        messages.error(request, 'You can review a study after you complete it.')
+        return redirect('storefront:application_detail', application_id=application.pk)
+    if review and review.status != Review.Status.PENDING:
+        messages.error(
+            request,
+            'This review has already been checked and cannot be changed.',
+        )
+        return redirect('storefront:application_detail', application_id=application.pk)
+    form = ReviewForm(
+        request.POST or None,
+        initial={
+            'rating': review.rating if review else None,
+            'comment': review.comment if review else '',
+        },
+    )
+    if request.method == 'POST' and form.is_valid():
+        try:
+            save_review(
+                request.user.participant_profile,
+                application.study,
+                int(form.cleaned_data['rating']),
+                form.cleaned_data['comment'],
+            )
+        except ValidationError as exc:
+            form.add_error(None, exc)
+        else:
+            messages.success(request, 'Your review has been sent for approval.')
+            return redirect('storefront:application_detail', application_id=application.pk)
+    return render(
+        request,
+        'storefront/review_application.html',
+        {'application': application, 'form': form},
+    )
+
+
+@participant_required
+def contact_application(request, application_id):
+    try:
+        application = get_my_application(
+            request.user.participant_profile, application_id
+        )
+    except Application.DoesNotExist:
+        raise Http404
+    form = SupportRequestForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        create_support_request(
+            application,
+            form.cleaned_data['topic'],
+            form.cleaned_data['question'],
+        )
+        messages.success(request, 'Your question has been sent.')
+        return redirect('storefront:application_detail', application_id=application.pk)
+    return render(
+        request,
+        'storefront/contact_application.html',
+        {'application': application, 'form': form},
+    )
+
+
+@require_POST
+@participant_required
+def confirm_appointment(request, application_id, appointment_id):
+    try:
+        application = get_my_application(
+            request.user.participant_profile, application_id
+        )
+    except Application.DoesNotExist:
+        raise Http404
+    if not application.appointments.filter(pk=appointment_id).exists():
+        raise Http404
+    try:
+        confirm_application_appointment(
+            request.user.participant_profile, appointment_id
+        )
+    except ValidationError as exc:
+        messages.error(request, exc.messages[0])
+    else:
+        messages.success(request, 'Appointment confirmed.')
+    return redirect('storefront:application_detail', application_id=application.pk)
 
 
 @participant_required
 def application_submitted(request, application_id):
     profile = request.user.participant_profile
     try:
-        application = Application.objects.select_related('study','participant').get(pk=application_id)
+        application = get_my_application(profile, application_id)
     except Application.DoesNotExist:
-        raise Http404
-    if application.participant_id != profile.pk:
         raise Http404
     alternatives = alternatives_for(profile, application.study, limit=3)
     return render(

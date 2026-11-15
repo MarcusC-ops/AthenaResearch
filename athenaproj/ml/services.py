@@ -6,7 +6,7 @@ import pandas as pd
 from django.conf import settings
 import joblib
 
-from core.models import Application, PredictionLog
+from core.models import Appointment, Application, PredictionLog
 
 
 MODEL_DIR = settings.BASE_DIR / 'ml' / 'models'
@@ -143,7 +143,10 @@ def build_ml2_features(application):
         'prior_completed': profile.applications.exclude(pk=application.pk).filter(
             status=Application.Status.COMPLETED
         ).count(),
-        'prior_no_shows': 0,
+        'prior_no_shows': Appointment.objects.filter(
+            application__participant=profile,
+            status=Appointment.Status.MISSED,
+        ).exclude(application=application).count(),
         'study_type': study.study_type,
         'phase': study.phase,
         'accepts_healthy_volunteers': int(study.accepts_healthy_volunteers),
