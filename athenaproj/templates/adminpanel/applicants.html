@@ -1,0 +1,94 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Applicants · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+    <div>
+      <h1 class="mb-2">Applicants</h1>
+      <p class="mb-0">{{ study.title }} · {{ study.get_status_display }} · {{ enrolled_count }} of {{ study.target_enrolment }} enrolled · Auto-shortlist {% if study.auto_shortlist_high %}on{% else %}off{% endif %}</p>
+    </div>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="toggle_auto_shortlist">
+      <button class="btn btn-outline-primary" type="submit">Change auto-shortlist</button>
+    </form>
+  </div>
+
+  <section class="mt-4 mb-4" aria-label="ML-2 priority legend">
+    <p class="mb-1">High {{ high_threshold }}% and above · Medium {{ medium_threshold }}% to {{ high_threshold|add:"-1" }}% · Low below {{ medium_threshold }}% · Unscored</p>
+    <p class="text-muted mb-0">The model only orders the queue. It never declines anyone.</p>
+  </section>
+
+  <nav class="study-status-tabs mb-4" aria-label="Applicant status">
+    {% for item in tabs %}
+      <a class="badge text-decoration-none {% if item.active %}text-bg-primary{% else %}text-bg-light{% endif %}"
+         href="?tab={{ item.value }}&amp;band={{ filter_values.band }}&amp;site={{ filter_values.site }}&amp;availability={{ filter_values.availability }}">
+        {{ item.label }} <span>{{ item.count }}</span>
+      </a>
+    {% endfor %}
+  </nav>
+
+  <form method="get" class="row g-3 align-items-end mb-4">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <div class="col-md-3">
+      <label class="form-label" for="{{ filter_form.band.id_for_label }}">Band</label>
+      {{ filter_form.band }}
+    </div>
+    <div class="col-md-4">
+      <label class="form-label" for="{{ filter_form.site.id_for_label }}">Preferred site</label>
+      {{ filter_form.site }}
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="{{ filter_form.availability.id_for_label }}">Availability</label>
+      {{ filter_form.availability }}
+    </div>
+    <div class="col-md-2"><button class="btn btn-primary w-100" type="submit">Filter</button></div>
+    {% if filter_form.errors %}<div class="col-12 text-danger">{{ filter_form.errors }}</div>{% endif %}
+  </form>
+
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th>Applicant</th><th>Age band</th><th>Sex</th><th>Region</th>
+          <th>Preferred site</th><th>Availability</th><th>Priority</th>
+          <th>Status</th><th>Submitted</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for application in applications %}
+          <tr>
+            <td>
+              <a href="{% url 'adminpanel:application_detail' application.pk %}">
+                {% if application.identity_is_unlocked %}
+                  {{ application.participant.user.get_full_name }}
+                {% else %}
+                  {{ application.reference }}
+                {% endif %}
+              </a>
+            </td>
+            <td>{{ application.applicant_age_band }}</td>
+            <td>{{ application.participant.get_sex_display }}</td>
+            <td>{{ application.participant.region.name }}</td>
+            <td>{{ application.preferred_site.name }}</td>
+            <td>{{ application.get_availability_display }}</td>
+            <td>
+              {% if application.priority_percentage != None %}
+                <span class="priority-pill priority-{{ application.ml2_band }}">{{ application.get_ml2_band_display }} · {{ application.priority_percentage }}%</span>
+              {% else %}
+                <span class="priority-pill priority-unscored">Unscored</span>
+              {% endif %}
+            </td>
+            <td><span class="badge text-bg-light">{{ application.get_status_display }}</span></td>
+            <td>{{ application.submitted_at|date:"j M Y" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="9" class="py-5 text-center">No applicants in this queue.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

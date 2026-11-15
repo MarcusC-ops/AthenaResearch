@@ -1,0 +1,20 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Mark not selected · Athena{% endblock %}
+
+{% block content %}
+<div class="container form-narrow">
+  <section class="card p-4">
+    <h1>Mark {{ application.reference }} as not selected?</h1>
+    <form method="post">
+      {% csrf_token %}
+      <div class="mb-3">
+        <label class="form-label" for="{{ form.reason.id_for_label }}">Reason</label>
+        {{ form.reason }}
+      </div>
+      <button class="btn btn-primary" type="submit">Mark not selected</button>
+      <a class="btn btn-outline-primary" href="{% url 'adminpanel:application_detail' application.pk %}">Cancel</a>
+    </form>
+  </section>
+</div>
+{% endblock %}

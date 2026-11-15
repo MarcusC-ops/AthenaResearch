@@ -1,0 +1,18 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Confirm band change · Athena{% endblock %}
+
+{% block content %}
+<div class="container form-narrow">
+  <section class="card p-4">
+    <h1>Change the band from {{ current_band }} to {{ new_band }}?</h1>
+    <p>{{ reason }}</p>
+    <p>The original band and your name will be recorded.</p>
+    <form method="post">
+      {% csrf_token %}
+      <button class="btn btn-primary" type="submit">Confirm change</button>
+      <button class="btn btn-outline-primary" type="submit" name="action" value="cancel">Cancel</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

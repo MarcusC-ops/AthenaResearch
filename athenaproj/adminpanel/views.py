@@ -2,30 +2,56 @@ from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.views import LogoutView
 from django.core.exceptions import ValidationError
-from django.http import Http404, HttpResponseNotAllowed
+from django.http import Http404, HttpResponseBadRequest, HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_POST, require_http_methods
+from django.utils import timezone
+from django.views.decorators.http import require_http_methods
 
-from core.models import Study
+from core.models import Application, Study
 from core.services import (
+    InvalidStatusMove,
+    age_band,
+    applicant_queue,
+    check_eligibility,
     create_pre_screen_question,
     create_study,
     delete_pre_screen_question,
+    enrol_applicant,
+    enrolled_count,
+    get_panel_application,
     get_panel_study,
+    get_settings,
+    identity_unlocked,
     list_notifications,
+    mark_not_selected,
     mark_all_read,
+    model_inputs,
+    move_to_review,
+    override_band,
     panel_studies,
+    record_screening_outcome,
     run_compliance_checks,
+    schedule_screening,
+    shortlist_applicant,
     set_auto_shortlist,
     sign_in_check,
     submit_study_for_review,
     update_pre_screen_question,
     update_study,
     user_role,
+    waitlist_applicant,
 )
 
 from .decorators import coordinator_required
-from .forms import PreScreenQuestionForm, StudyForm
+from .forms import (
+    ApplicantFilterForm,
+    NotSelectedForm,
+    OverrideBandForm,
+    PreScreenQuestionForm,
+    ScreeningOutcomeForm,
+    ScreeningScheduleForm,
+    StudyForm,
+)
 
 
 def dashboard(request):
@@ -305,4 +331,339 @@ def study_submit(request, study_id):
         'study': study,
         'checks': checks,
         'all_pass': all(check.passed for check in checks),
+    })
+
+
+APPLICANT_TABS = (
+    ('needs_action', 'Needs action'),
+    ('under_review', 'Under review'),
+    ('shortlisted', 'Shortlisted'),
+    ('screening_scheduled', 'Screening scheduled'),
+    ('screening_passed', 'Screening passed'),
+    ('waitlisted', 'Waitlisted'),
+)
+
+
+def _applicant_queue_url(study_id):
+    return f'/panel/studies/{study_id}/applicants/'
+
+
+@require_http_methods(['GET', 'POST'])
+def applicants(request, study_id):
+    study = _panel_study_or_404(request, study_id)
+    if request.method == 'POST':
+        if request.POST.get('action') != 'toggle_auto_shortlist':
+            return HttpResponseBadRequest('Unknown action.')
+        new_value = not study.auto_shortlist_high
+        try:
+            set_auto_shortlist(study, new_value, request.user)
+        except ValidationError as error:
+            messages.error(request, error.messages[0])
+        else:
+            messages.success(
+                request,
+                'Auto-shortlist is on.' if new_value else 'Auto-shortlist is off.',
+            )
+        return redirect(_applicant_queue_url(study.pk))
+
+    filter_form = ApplicantFilterForm(request.GET or None, study=study)
+    filter_values = {'band': '', 'site': '', 'availability': ''}
+    if filter_form.is_valid():
+        cleaned = filter_form.cleaned_data
+        filter_values = {
+            'band': cleaned['band'],
+            'site': cleaned['site'].pk if cleaned['site'] else '',
+            'availability': cleaned['availability'],
+        }
+    tab = request.GET.get('tab', 'needs_action')
+    if tab not in dict((value, label) for value, label in APPLICANT_TABS):
+        tab = 'needs_action'
+
+    def filtered_queue(selected_tab):
+        return applicant_queue(study, selected_tab, **filter_values)
+
+    applications = list(filtered_queue(tab))
+    for application in applications:
+        application.identity_is_unlocked = identity_unlocked(application)
+        application.applicant_age_band = age_band(application.participant.age)
+        application.priority_percentage = (
+            round(application.ml2_probability * 100)
+            if application.ml2_probability is not None else None
+        )
+
+    tabs = [
+        {
+            'value': value,
+            'label': label,
+            'count': filtered_queue(value).count(),
+            'active': tab == value,
+        }
+        for value, label in APPLICANT_TABS
+    ]
+    settings = get_settings()
+    high_threshold = round(settings.ml2_high_threshold * 100)
+    medium_threshold = round(settings.ml2_medium_threshold * 100)
+    return render(request, 'adminpanel/applicants.html', {
+        'study': study,
+        'applications': applications,
+        'filter_form': filter_form,
+        'filter_values': filter_values,
+        'tab': tab,
+        'tabs': tabs,
+        'enrolled_count': enrolled_count(study),
+        'high_threshold': high_threshold,
+        'medium_threshold': medium_threshold,
+    })
+
+
+def _panel_application_or_404(request, application_id):
+    try:
+        return get_panel_application(request.user, application_id)
+    except Application.DoesNotExist:
+        raise Http404
+
+
+def _report_action_error(request, error):
+    if isinstance(error, ValidationError):
+        messages.error(request, error.messages[0])
+    else:
+        messages.error(request, str(error))
+
+
+@require_http_methods(['GET', 'POST'])
+def application_detail(request, application_id):
+    application = _panel_application_or_404(request, application_id)
+    study = application.study
+    screening_form = ScreeningScheduleForm(study=study)
+    if request.method == 'POST':
+        action = request.POST.get('action', '')
+        try:
+            if action == 'shortlist':
+                shortlist_applicant(application, request.user)
+                messages.success(request, 'Applicant shortlisted.')
+            elif action == 'schedule_screening':
+                screening_form = ScreeningScheduleForm(
+                    request.POST, study=study
+                )
+                if not screening_form.is_valid():
+                    messages.error(request, 'Enter a valid screening date, time and site.')
+                    return redirect(
+                        'adminpanel:application_detail',
+                        application_id=application.pk,
+                    )
+                schedule_screening(
+                    application,
+                    screening_form.cleaned_data['when'],
+                    screening_form.cleaned_data['site'],
+                    request.user,
+                )
+                messages.success(request, 'Screening scheduled.')
+            elif action == 'screening_passed':
+                record_screening_outcome(application, True, request.user)
+                messages.success(request, 'Screening result recorded.')
+            elif action == 'enrol':
+                enrol_applicant(application, request.user)
+                messages.success(request, 'Applicant enrolled.')
+            elif action == 'waitlist':
+                waitlist_applicant(application, request.user)
+                messages.success(request, 'Applicant waitlisted.')
+            elif action == 'move_to_review':
+                move_to_review(application, request.user)
+                messages.success(request, 'Application moved to review.')
+            else:
+                return HttpResponseBadRequest('Unknown action.')
+        except (InvalidStatusMove, ValidationError) as error:
+            _report_action_error(request, error)
+        return redirect(
+            'adminpanel:application_detail',
+            application_id=application.pk,
+        )
+
+    unlocked = identity_unlocked(application)
+    profile = application.participant
+    priority_percentage = (
+        round(application.ml2_probability * 100)
+        if application.ml2_probability is not None else None
+    )
+    override_message = ''
+    if application.band_overridden:
+        old_band = dict(Application.Band.choices).get(
+            application.original_band, application.original_band
+        )
+        new_band = application.get_ml2_band_display()
+        actor_name = (
+            application.overridden_by.get_full_name()
+            if application.overridden_by_id else 'Unknown'
+        )
+        override_date = timezone.localtime(
+            application.overridden_at
+        ).strftime('%d %b %Y').lstrip('0')
+        override_message = (
+            f'Band changed from {old_band} to {new_band} by {actor_name} on '
+            f'{override_date}: {application.override_reason}'
+        )
+    return render(request, 'adminpanel/application_detail.html', {
+        'application': application,
+        'study': study,
+        'identity_unlocked': unlocked,
+        'age_band': age_band(profile.age),
+        'profile': profile,
+        'condition_count': profile.conditions.count(),
+        'answers': application.answers.select_related('question').order_by(
+            'question__order'
+        ),
+        'eligibility_rows': check_eligibility(profile, study),
+        'status_events': application.status_events.select_related('actor').order_by(
+            'created_at', 'pk'
+        ),
+        'screening_appointments': application.appointments.filter(
+            kind='screening'
+        ).select_related('site').order_by('-created_at', '-pk'),
+        'screening_form': screening_form,
+        'screening_outcome_form': ScreeningOutcomeForm(),
+        'is_study_full': enrolled_count(study) >= study.target_enrolment,
+        'priority_percentage': priority_percentage,
+        'model_inputs': model_inputs(application),
+        'override_message': override_message,
+    })
+
+
+@require_http_methods(['GET', 'POST'])
+def application_not_selected(request, application_id):
+    application = _panel_application_or_404(request, application_id)
+    form = NotSelectedForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        try:
+            mark_not_selected(
+                application,
+                request.user,
+                form.cleaned_data['reason'],
+            )
+        except (InvalidStatusMove, ValidationError) as error:
+            _report_action_error(request, error)
+            return redirect(
+                'adminpanel:application_detail',
+                application_id=application.pk,
+            )
+        messages.success(request, 'Application marked as not selected.')
+        return redirect(
+            'adminpanel:application_detail',
+            application_id=application.pk,
+        )
+    return render(request, 'adminpanel/application_not_selected.html', {
+        'application': application,
+        'form': form,
+    })
+
+
+@require_http_methods(['GET', 'POST'])
+def application_screening_failed(request, application_id):
+    application = _panel_application_or_404(request, application_id)
+    form = ScreeningOutcomeForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        try:
+            record_screening_outcome(
+                application,
+                False,
+                request.user,
+                note=form.cleaned_data['note'],
+            )
+        except (InvalidStatusMove, ValidationError) as error:
+            _report_action_error(request, error)
+            return redirect(
+                'adminpanel:application_detail',
+                application_id=application.pk,
+            )
+        messages.success(request, 'Screening result recorded.')
+        return redirect(
+            'adminpanel:application_detail',
+            application_id=application.pk,
+        )
+    return render(request, 'adminpanel/application_screening_failed.html', {
+        'application': application,
+        'form': form,
+    })
+
+
+def _override_session_key(application):
+    return f'override_{application.pk}'
+
+
+@require_http_methods(['GET', 'POST'])
+def application_override(request, application_id):
+    application = _panel_application_or_404(request, application_id)
+    form = OverrideBandForm(
+        request.POST or None,
+        current_band=application.ml2_band,
+    )
+    if request.method == 'POST' and form.is_valid():
+        request.session[_override_session_key(application)] = {
+            'new_band': form.cleaned_data['new_band'],
+            'reason': form.cleaned_data['reason'],
+        }
+        messages.info(request, 'Review the band change before confirming.')
+        return redirect(
+            'adminpanel:application_override_confirm',
+            application_id=application.pk,
+        )
+    return render(request, 'adminpanel/application_override.html', {
+        'application': application,
+        'form': form,
+    })
+
+
+@require_http_methods(['GET', 'POST'])
+def application_override_confirm(request, application_id):
+    application = _panel_application_or_404(request, application_id)
+    key = _override_session_key(application)
+    if request.method == 'POST' and request.POST.get('action') == 'cancel':
+        request.session.pop(key, None)
+        messages.info(request, 'Band change cancelled.')
+        return redirect(
+            'adminpanel:application_detail',
+            application_id=application.pk,
+        )
+    saved = request.session.get(key)
+    if not isinstance(saved, dict) or not saved.get('new_band') or not saved.get('reason'):
+        messages.error(request, 'Choose a new band and reason first.')
+        return redirect(
+            'adminpanel:application_override',
+            application_id=application.pk,
+        )
+    form = OverrideBandForm(saved, current_band=application.ml2_band)
+    if not form.is_valid():
+        request.session.pop(key, None)
+        messages.error(request, 'Choose a new band and reason first.')
+        return redirect(
+            'adminpanel:application_override',
+            application_id=application.pk,
+        )
+    if request.method == 'POST':
+        try:
+            override_band(
+                application,
+                form.cleaned_data['new_band'],
+                form.cleaned_data['reason'],
+                request.user,
+            )
+        except ValidationError as error:
+            request.session.pop(key, None)
+            _report_action_error(request, error)
+            return redirect(
+                'adminpanel:application_override',
+                application_id=application.pk,
+            )
+        request.session.pop(key, None)
+        messages.success(request, 'Band changed.')
+        return redirect(
+            'adminpanel:application_detail',
+            application_id=application.pk,
+        )
+    return render(request, 'adminpanel/application_override_confirm.html', {
+        'application': application,
+        'current_band': application.get_ml2_band_display(),
+        'new_band': dict(Application.Band.choices).get(
+            form.cleaned_data['new_band'], form.cleaned_data['new_band']
+        ),
+        'reason': form.cleaned_data['reason'],
     })

@@ -1,0 +1,152 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}{{ application.reference }} · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="mb-4">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <h1 class="mb-0">
+        {% if identity_unlocked %}{{ profile.user.get_full_name }}{% else %}{{ application.reference }}{% endif %}
+      </h1>
+      <span class="badge text-bg-light">{{ application.get_status_display }}</span>
+    </div>
+    <p class="mt-2 mb-0"><a href="{% url 'adminpanel:study_detail' study.pk %}">{{ study.title }}</a> · Submitted {{ application.submitted_at|date:"j M Y" }}</p>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-7">
+      <section class="card p-4 mb-3">
+        <h2>Profile summary</h2>
+        <dl class="row mb-0">
+          <dt class="col-sm-5">Age band</dt><dd class="col-sm-7">{{ age_band }}</dd>
+          <dt class="col-sm-5">Sex</dt><dd class="col-sm-7">{{ profile.get_sex_display }}</dd>
+          <dt class="col-sm-5">Region</dt><dd class="col-sm-7">{{ profile.region.name }}</dd>
+          <dt class="col-sm-5">BMI</dt><dd class="col-sm-7">{{ profile.bmi|default:'Not recorded' }}</dd>
+          <dt class="col-sm-5">Smoker</dt><dd class="col-sm-7">{% if profile.smoker %}Yes{% else %}No{% endif %}</dd>
+          <dt class="col-sm-5">Activity level</dt><dd class="col-sm-7">{{ profile.get_activity_level_display|default:'Not recorded' }}</dd>
+          <dt class="col-sm-5">Known conditions</dt><dd class="col-sm-7">{{ condition_count }}</dd>
+        </dl>
+      </section>
+
+      <section class="card p-4 mb-3">
+        <h2>Identity and contact</h2>
+        {% if identity_unlocked %}
+          <dl class="row mb-0">
+            <dt class="col-sm-4">Name</dt><dd class="col-sm-8">{{ profile.user.get_full_name }}</dd>
+            <dt class="col-sm-4">Email</dt><dd class="col-sm-8">{{ profile.user.email }}</dd>
+            <dt class="col-sm-4">Mobile</dt><dd class="col-sm-8">{{ profile.mobile }}</dd>
+          </dl>
+        {% else %}
+          <p class="text-muted mb-0">Unlocked at shortlisting</p>
+        {% endif %}
+      </section>
+
+      <section class="card p-4 mb-3">
+        <h2>Pre-screen answers</h2>
+        <dl class="row mb-0">
+          {% for answer in answers %}
+            <dt class="col-sm-8">{{ answer.question.text }}</dt>
+            <dd class="col-sm-4">{{ answer.answer }}{% if answer.answer == answer.question.preferred_answer %} <span class="badge text-bg-light">Preferred</span>{% endif %}</dd>
+          {% empty %}
+            <dd class="col-12 mb-0">No pre-screen answers.</dd>
+          {% endfor %}
+        </dl>
+      </section>
+
+      <section class="card p-4 mb-3">
+        <h2>Eligibility checklist (today)</h2>
+        <dl class="row mb-0">
+          {% for row in eligibility_rows %}
+            <dt class="col-sm-8">{{ row.label }}</dt>
+            <dd class="col-sm-4">{% if row.met %}Met{% else %}Not met{% endif %}</dd>
+          {% endfor %}
+        </dl>
+      </section>
+
+      <section class="card p-4">
+        <h2>Status history</h2>
+        <ol class="list-unstyled mb-0">
+          {% for event in status_events %}
+            <li class="mb-3">
+              <strong>{{ event.get_to_status_display }}</strong>
+              <span class="text-muted">· {{ event.created_at|date:"j M Y, g:i A" }} · {% if event.actor %}{{ event.actor.get_full_name|default:event.actor.username }}{% else %}System{% endif %}</span>
+              {% if event.note %}<div>{{ event.note }}</div>{% endif %}
+            </li>
+          {% empty %}
+            <li>No status history.</li>
+          {% endfor %}
+        </ol>
+      </section>
+    </div>
+
+    <div class="col-lg-5">
+      <section class="card p-4 mb-3">
+        <h2>Next step</h2>
+        {% if application.status == 'under_review' %}
+          <form method="post" class="mb-2">{% csrf_token %}<input type="hidden" name="action" value="shortlist"><button class="btn btn-primary" type="submit">Shortlist</button></form>
+          <a class="btn btn-outline-primary" href="{% url 'adminpanel:application_not_selected' application.pk %}">Mark not selected</a>
+        {% elif application.status == 'waitlisted' %}
+          <form method="post" class="mb-2">{% csrf_token %}<input type="hidden" name="action" value="move_to_review"><button class="btn btn-primary" type="submit">Move to review</button></form>
+          <a class="btn btn-outline-primary" href="{% url 'adminpanel:application_not_selected' application.pk %}">Mark not selected</a>
+        {% elif application.status == 'shortlisted' %}
+          <form method="post" class="mb-3">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="schedule_screening">
+            <div class="mb-3">
+              <label class="form-label" for="{{ screening_form.when.id_for_label }}">{{ screening_form.when.label }}</label>
+              {{ screening_form.when }}
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="{{ screening_form.site.id_for_label }}">{{ screening_form.site.label }}</label>
+              {{ screening_form.site }}
+            </div>
+            <button class="btn btn-primary" type="submit">Schedule screening</button>
+          </form>
+          <a class="btn btn-outline-primary" href="{% url 'adminpanel:application_not_selected' application.pk %}">Mark not selected</a>
+        {% elif application.status == 'screening_scheduled' %}
+          {% for appointment in screening_appointments %}
+            <p>Screening on {{ appointment.scheduled_for|date:"j M Y, g:i A" }} at {{ appointment.site.name }}</p>
+          {% endfor %}
+          <form method="post" class="mb-2">{% csrf_token %}<input type="hidden" name="action" value="screening_passed"><button class="btn btn-primary" type="submit">Record screening passed</button></form>
+          <a class="btn btn-outline-primary" href="{% url 'adminpanel:application_screening_failed' application.pk %}">Record screening failed</a>
+        {% elif application.status == 'screening_passed' %}
+          {% if is_study_full %}
+            <button class="btn btn-primary" type="button" disabled>Enrol</button>
+            <p class="mt-2">The study is full. Waitlist instead.</p>
+          {% else %}
+            <form method="post" class="mb-2">{% csrf_token %}<input type="hidden" name="action" value="enrol"><button class="btn btn-primary" type="submit">Enrol</button></form>
+          {% endif %}
+          <form method="post" class="mb-2">{% csrf_token %}<input type="hidden" name="action" value="waitlist"><button class="btn btn-outline-primary" type="submit">Waitlist</button></form>
+          <a class="btn btn-outline-primary" href="{% url 'adminpanel:application_not_selected' application.pk %}">Mark not selected</a>
+        {% elif application.status == 'enrolled' %}
+          <button class="btn btn-outline-primary" type="button" disabled>Go to visits and payouts</button>
+        {% else %}
+          <p class="mb-0">This application is closed.</p>
+        {% endif %}
+      </section>
+
+      <section class="card p-4">
+        <h2>ML-2 priority</h2>
+        <p><span class="priority-pill priority-{{ application.ml2_band }}">{{ application.get_ml2_band_display }}</span></p>
+        {% if priority_percentage != None %}
+          <p>{{ priority_percentage }}% predicted chance of passing screening</p>
+        {% else %}
+          <p>No screening probability is available.</p>
+        {% endif %}
+        <p>Model version {{ application.ml2_model_version|default:'Not recorded' }}</p>
+        <h3>Key inputs to the model</h3>
+        <dl class="row">
+          {% for item in model_inputs %}
+            <dt class="col-sm-8">{{ item.label }}</dt><dd class="col-sm-4">{{ item.value }}</dd>
+          {% empty %}
+            <dd class="col-12">No model inputs recorded.</dd>
+          {% endfor %}
+        </dl>
+        <a href="{% url 'adminpanel:application_override' application.pk %}">Override band</a>
+        {% if override_message %}<p class="mt-3 mb-0">{{ override_message }}</p>{% endif %}
+      </section>
+    </div>
+  </div>
+</div>
+{% endblock %}

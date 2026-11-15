@@ -1,0 +1,31 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Override band · Athena{% endblock %}
+
+{% block content %}
+<div class="container form-narrow">
+  <section class="card p-4">
+    <h1>Override band</h1>
+    <form method="post">
+      {% csrf_token %}
+      <fieldset class="mb-3">
+        <legend class="form-label">{{ form.new_band.label }}</legend>
+        {% for choice in form.new_band %}
+          <div class="form-check">
+            {{ choice.tag }}
+            <label class="form-check-label" for="{{ choice.id_for_label }}">{{ choice.choice_label }}</label>
+          </div>
+        {% endfor %}
+        {{ form.new_band.errors }}
+      </fieldset>
+      <div class="mb-3">
+        <label class="form-label" for="{{ form.reason.id_for_label }}">Reason</label>
+        {{ form.reason }}
+        {{ form.reason.errors }}
+      </div>
+      <button class="btn btn-primary" type="submit">Continue</button>
+      <a class="btn btn-outline-primary" href="{% url 'adminpanel:application_detail' application.pk %}">Cancel</a>
+    </form>
+  </section>
+</div>
+{% endblock %}

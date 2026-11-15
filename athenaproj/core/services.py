@@ -9,7 +9,7 @@ from django.contrib.auth.models import Group, User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Avg, Case, Count, Q, Sum, Value, When
+from django.db.models import Avg, Case, Count, Exists, F, IntegerField, OuterRef, Q, Sum, Value, When
 from django.db.models.deletion import ProtectedError, RestrictedError
 from django.utils import timezone
 
@@ -191,6 +191,32 @@ def get_panel_study(user, study_id):
         ).get(pk=study_id)
     except Study.DoesNotExist:
         raise Study.DoesNotExist
+
+
+def get_panel_application(user, application_id):
+    role = user_role(user)
+    applications = Application.objects.all()
+    if role == 'coordinator':
+        organisation_id = getattr(
+            getattr(user, 'staff_profile', None), 'organisation_id', None
+        )
+        applications = applications.filter(
+            study__organisation_id=organisation_id
+        )
+    elif role not in ('staff', 'admin'):
+        applications = applications.none()
+    return applications.select_related(
+        'participant__user',
+        'participant__region',
+        'preferred_site',
+        'study__organisation',
+        'study__category',
+        'overridden_by',
+    ).prefetch_related(
+        'answers__question',
+        'status_events__actor',
+        'appointments__site',
+    ).get(pk=application_id)
 
 
 def _coordinator_organisation(user):
@@ -890,6 +916,287 @@ def change_status(application, to_status, actor=None, actor_role='system', note=
     if to_status == Application.Status.ENROLLED or current == Application.Status.ENROLLED:
         refresh_capacity(application.study)
     return application
+
+
+def applicant_queue(study, tab='needs_action', band='', site='', availability=''):
+    screening_appointments = Appointment.objects.filter(
+        application_id=OuterRef('pk'),
+        kind=Appointment.Kind.SCREENING,
+    )
+    applications = Application.objects.filter(study=study).exclude(
+        status=Application.Status.AUTO_DECLINED
+    ).annotate(
+        has_screening=Exists(screening_appointments),
+        band_rank=Case(
+            When(ml2_band=Application.Band.HIGH, then=Value(0)),
+            When(ml2_band=Application.Band.MEDIUM, then=Value(1)),
+            When(ml2_band=Application.Band.LOW, then=Value(2)),
+            default=Value(3),
+            output_field=IntegerField(),
+        ),
+    )
+    if tab == 'needs_action':
+        applications = applications.filter(
+            Q(status=Application.Status.UNDER_REVIEW)
+            | Q(status=Application.Status.SHORTLISTED, has_screening=False)
+            | Q(status=Application.Status.SCREENING_PASSED)
+        )
+    else:
+        tab_statuses = {
+            'under_review': Application.Status.UNDER_REVIEW,
+            'shortlisted': Application.Status.SHORTLISTED,
+            'screening_scheduled': Application.Status.SCREENING_SCHEDULED,
+            'screening_passed': Application.Status.SCREENING_PASSED,
+            'waitlisted': Application.Status.WAITLISTED,
+        }
+        status = tab_statuses.get(tab)
+        if status is None:
+            applications = applications.none()
+        else:
+            applications = applications.filter(status=status)
+    if band:
+        applications = applications.filter(ml2_band=band)
+    if site:
+        applications = applications.filter(preferred_site_id=site)
+    if availability:
+        applications = applications.filter(availability=availability)
+    return applications.select_related(
+        'participant__user',
+        'participant__region',
+        'preferred_site',
+    ).order_by(
+        'band_rank',
+        F('ml2_probability').desc(nulls_last=True),
+        'submitted_at',
+        'pk',
+    )
+
+
+def age_band(age):
+    if age < 30:
+        return '21 to 29'
+    if age < 40:
+        return '30 to 39'
+    if age < 50:
+        return '40 to 49'
+    if age < 60:
+        return '50 to 59'
+    return '60 and over'
+
+
+def identity_unlocked(application):
+    return application.status_events.filter(
+        to_status=Application.Status.SHORTLISTED
+    ).exists()
+
+
+def shortlist_applicant(application, user):
+    return change_status(
+        application,
+        Application.Status.SHORTLISTED,
+        actor=user,
+        actor_role=ApplicationStatusEvent.ActorRole.COORDINATOR,
+        note='Good fit with the study criteria',
+    )
+
+
+@transaction.atomic
+def schedule_screening(application, when, site, user):
+    if timezone.is_naive(when):
+        when = timezone.make_aware(when, timezone.get_current_timezone())
+    if when <= timezone.now():
+        raise ValidationError('Choose a date and time in the future.')
+    if site is None or not application.study.sites.filter(pk=site.pk).exists():
+        raise ValidationError('Choose a site for this study.')
+    appointment = Appointment.objects.create(
+        application=application,
+        site=site,
+        kind=Appointment.Kind.SCREENING,
+        scheduled_for=when,
+        status=Appointment.Status.PROPOSED,
+    )
+    note = (
+        f'Screening on {timezone.localtime(when).strftime("%d %b %Y, %I:%M %p")} '
+        f'at {site.name}'
+    )
+    change_status(
+        application,
+        Application.Status.SCREENING_SCHEDULED,
+        actor=user,
+        actor_role=ApplicationStatusEvent.ActorRole.COORDINATOR,
+        note=note,
+    )
+    return appointment
+
+
+@transaction.atomic
+def record_screening_outcome(application, passed, user, note=''):
+    target_status = (
+        Application.Status.SCREENING_PASSED
+        if passed else Application.Status.SCREENING_FAILED
+    )
+    appointment = application.appointments.filter(
+        kind=Appointment.Kind.SCREENING
+    ).order_by('-created_at', '-pk').first()
+    if appointment is None:
+        change_status(
+            application,
+            target_status,
+            actor=user,
+            actor_role=ApplicationStatusEvent.ActorRole.COORDINATOR,
+        )
+        raise ValidationError('This application has no screening appointment.')
+    outcome = (
+        Application.ScreeningOutcome.PASSED
+        if passed else Application.ScreeningOutcome.FAILED
+    )
+    application.screening_outcome = outcome
+    application.outcome_recorded_at = timezone.now()
+    application.save(update_fields=[
+        'screening_outcome', 'outcome_recorded_at', 'updated_at',
+    ])
+    appointment.status = Appointment.Status.ATTENDED
+    appointment.save(update_fields=['status', 'updated_at'])
+    event_note = (
+        'You passed screening'
+        if passed else (note.strip() or 'Thank you for attending screening')
+    )
+    return change_status(
+        application,
+        target_status,
+        actor=user,
+        actor_role=ApplicationStatusEvent.ActorRole.COORDINATOR,
+        note=event_note,
+    )
+
+
+@transaction.atomic
+def enrol_applicant(application, user):
+    change_status(
+        application,
+        Application.Status.ENROLLED,
+        actor=user,
+        actor_role=ApplicationStatusEvent.ActorRole.COORDINATOR,
+        note='Welcome to the study',
+    )
+    Appointment.objects.bulk_create([
+        Appointment(
+            application=application,
+            site=application.preferred_site,
+            kind=Appointment.Kind.VISIT,
+            visit_number=visit_number,
+            status=Appointment.Status.PROPOSED,
+        )
+        for visit_number in range(1, application.study.total_visits + 1)
+    ])
+    return application
+
+
+def waitlist_applicant(application, user):
+    return change_status(
+        application,
+        Application.Status.WAITLISTED,
+        actor=user,
+        actor_role=ApplicationStatusEvent.ActorRole.COORDINATOR,
+        note='You are on the waitlist',
+    )
+
+
+def move_to_review(application, user):
+    return change_status(
+        application,
+        Application.Status.UNDER_REVIEW,
+        actor=user,
+        actor_role=ApplicationStatusEvent.ActorRole.COORDINATOR,
+        note='Moved back to review',
+    )
+
+
+@transaction.atomic
+def mark_not_selected(application, user, reason):
+    change_status(
+        application,
+        Application.Status.NOT_SELECTED,
+        actor=user,
+        actor_role=ApplicationStatusEvent.ActorRole.COORDINATOR,
+        note='Not selected this time',
+    )
+    application.not_selected_reason = reason
+    application.save(update_fields=['not_selected_reason', 'updated_at'])
+    return application
+
+
+@transaction.atomic
+def override_band(application, new_band, reason, user):
+    reason = reason.strip()
+    if len(reason) < 10:
+        raise ValidationError('Give a reason of at least 10 characters.')
+    if new_band not in (
+        Application.Band.HIGH,
+        Application.Band.MEDIUM,
+        Application.Band.LOW,
+    ):
+        raise ValidationError('Choose High, Medium or Low.')
+    if new_band == application.ml2_band:
+        raise ValidationError('Choose a band different from the current band.')
+    if not application.band_overridden:
+        application.original_band = application.ml2_band
+    application.band_overridden = True
+    application.ml2_band = new_band
+    application.override_reason = reason
+    application.overridden_by = user
+    application.overridden_at = timezone.now()
+    application.save(update_fields=[
+        'original_band',
+        'band_overridden',
+        'ml2_band',
+        'override_reason',
+        'overridden_by',
+        'overridden_at',
+        'updated_at',
+    ])
+    return application
+
+
+def model_inputs(application):
+    prediction = application.prediction_logs.filter(
+        model_name=PredictionLog.ModelName.ML2,
+        succeeded=True,
+    ).order_by('-created_at', '-pk').first()
+    if prediction is None:
+        return []
+    features = prediction.features
+    preferred_total = application.study.pre_screen_questions.filter(
+        preferred_answer__gt=''
+    ).count()
+    preferred_share = float(features.get('preferred_answer_share', 0))
+    preferred_count = round(preferred_share * preferred_total)
+    return [
+        {
+            'label': 'Region match',
+            'value': 'Yes' if features.get('region_match') else 'No',
+        },
+        {
+            'label': 'Availability match',
+            'value': 'Yes' if features.get('availability_match') else 'No',
+        },
+        {
+            'label': 'Preferred answers',
+            'value': f'{preferred_count} of {preferred_total}',
+        },
+        {
+            'label': 'Prior completed studies',
+            'value': features.get('prior_completed', 0),
+        },
+        {
+            'label': 'Prior no-shows',
+            'value': features.get('prior_no_shows', 0),
+        },
+        {
+            'label': 'BMI near a limit',
+            'value': 'Yes' if features.get('bmi_near_limit') else 'No',
+        },
+    ]
 
 
 PARTICIPANT_STATUS_LABELS = {
