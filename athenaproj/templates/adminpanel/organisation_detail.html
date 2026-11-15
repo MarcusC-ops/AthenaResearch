@@ -1,0 +1,30 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}{{ organisation.name }} · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <h1>{{ organisation.name }}</h1>
+  <div class="d-flex gap-3 mb-4">
+    <a href="{% url 'adminpanel:organisation_sites' organisation.pk %}">Sites</a>
+    <a href="{% url 'adminpanel:organisation_users' organisation.pk %}">Coordinators</a>
+  </div>
+  <section class="card p-4 form-narrow">
+    <h2 class="h4">Organisation details</h2>
+    <form method="post">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="mb-3">{{ field.label_tag }}{{ field }}{% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}</div>
+      {% endfor %}
+      <button class="btn btn-primary" type="submit">Save changes</button>
+    </form>
+  </section>
+  <div class="mt-4">
+    {% if organisation.is_active %}
+      <a class="btn btn-outline-primary" href="{% url 'adminpanel:organisation_active' organisation.pk 'deactivate' %}">Deactivate</a>
+    {% else %}
+      <a class="btn btn-outline-primary" href="{% url 'adminpanel:organisation_active' organisation.pk 'reactivate' %}">Reactivate</a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

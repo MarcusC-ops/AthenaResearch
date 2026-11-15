@@ -6,6 +6,86 @@ app_name = 'adminpanel'
 
 urlpatterns = [
     path('', views.dashboard, name='dashboard'),
+    path('moderation/', views.moderation, name='moderation'),
+    path('moderation/<int:study_id>/', views.moderation_detail, name='moderation_detail'),
+    path(
+        'moderation/<int:study_id>/unpublish/',
+        views.moderation_unpublish,
+        name='moderation_unpublish',
+    ),
+    path('organisations/', views.organisations, name='organisations'),
+    path(
+        'organisations/<int:organisation_id>/',
+        views.organisation_detail,
+        name='organisation_detail',
+    ),
+    path(
+        'organisations/<int:organisation_id>/sites/',
+        views.organisation_sites,
+        name='organisation_sites',
+    ),
+    path(
+        'organisations/<int:organisation_id>/sites/<int:site_id>/edit/',
+        views.site_edit,
+        name='site_edit',
+    ),
+    path(
+        'organisations/<int:organisation_id>/sites/<int:site_id>/delete/',
+        views.site_delete_confirmation,
+        name='site_delete',
+    ),
+    path(
+        'organisations/<int:organisation_id>/users/',
+        views.organisation_users,
+        name='organisation_users',
+    ),
+    path(
+        'organisations/<int:organisation_id>/<str:action>/',
+        views.organisation_active_confirmation,
+        name='organisation_active',
+    ),
+    path(
+        'organisations/<int:organisation_id>/sites/<int:site_id>/<str:action>/',
+        views.site_active_confirmation,
+        name='site_active',
+    ),
+    path('participants/', views.participants, name='participants'),
+    path(
+        'participants/<int:participant_id>/',
+        views.participant_detail,
+        name='participant_detail',
+    ),
+    path('taxonomy/', views.taxonomy, name='taxonomy'),
+    path(
+        'taxonomy/categories/new/',
+        views.taxonomy_category_save,
+        name='taxonomy_category_new',
+    ),
+    path(
+        'taxonomy/categories/<int:category_id>/edit/',
+        views.taxonomy_category_save,
+        name='taxonomy_category_edit',
+    ),
+    path(
+        'taxonomy/conditions/new/',
+        views.taxonomy_condition_save,
+        name='taxonomy_condition_new',
+    ),
+    path(
+        'taxonomy/conditions/<int:condition_id>/edit/',
+        views.taxonomy_condition_save,
+        name='taxonomy_condition_edit',
+    ),
+    path(
+        'taxonomy/<str:kind>/<int:record_id>/delete/',
+        views.taxonomy_delete,
+        name='taxonomy_delete',
+    ),
+    path(
+        'taxonomy/<str:kind>/<int:record_id>/<str:action>/',
+        views.taxonomy_active,
+        name='taxonomy_active',
+    ),
     path('login/', views.panel_login, name='login'),
     path('logout/', views.PanelLogoutView.as_view(), name='logout'),
     path('notifications/', views.notifications, name='notifications'),

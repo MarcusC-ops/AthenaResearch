@@ -1,6 +1,10 @@
 from django import forms
 
-from core.models import Application, Appointment, Condition, PreScreenQuestion, Site, Study, StudyCategory
+from core.models import (
+    Application, Appointment, Condition, Organisation, PreScreenQuestion, Site,
+    Study, StudyCategory,
+)
+from core.validators import normalise_sg_mobile
 
 
 class StudyForm(forms.ModelForm):
@@ -76,22 +80,30 @@ class StudyForm(forms.ModelForm):
             ),
         }
 
-    def __init__(self, *args, organisation, **kwargs):
+    def __init__(self, *args, organisation=None, staff_mode=False, **kwargs):
         super().__init__(*args, **kwargs)
-        self.organisation = organisation
-        self.fields['category'].queryset = StudyCategory.objects.filter(
-            is_active=True
-        ).order_by('display_order')
-        self.fields['required_conditions'].queryset = Condition.objects.filter(
-            is_active=True
-        ).order_by('name')
-        self.fields['excluded_conditions'].queryset = Condition.objects.filter(
-            is_active=True
-        ).order_by('name')
-        self.fields['sites'].queryset = Site.objects.filter(
-            organisation=organisation,
-            is_active=True,
-        ).order_by('name')
+        self.staff_mode = staff_mode
+        self.organisation = organisation or getattr(self.instance, 'organisation', None)
+        categories = StudyCategory.objects.filter(is_active=True)
+        conditions = Condition.objects.filter(is_active=True)
+        if staff_mode and self.instance.pk:
+            categories = categories | StudyCategory.objects.filter(
+                pk=self.instance.category_id
+            )
+            conditions = conditions | Condition.objects.filter(
+                pk__in=self.instance.required_conditions.values('pk')
+            ) | Condition.objects.filter(
+                pk__in=self.instance.excluded_conditions.values('pk')
+            )
+        self.fields['category'].queryset = categories.order_by('display_order')
+        self.fields['required_conditions'].queryset = conditions.order_by('name')
+        self.fields['excluded_conditions'].queryset = conditions.order_by('name')
+        site_queryset = Site.objects.filter(
+            organisation=self.organisation,
+        )
+        if not staff_mode:
+            site_queryset = site_queryset.filter(is_active=True)
+        self.fields['sites'].queryset = site_queryset.order_by('name').distinct()
 
         for field in self.fields.values():
             if isinstance(field.widget, (forms.CheckboxInput, forms.CheckboxSelectMultiple)):
@@ -177,6 +189,147 @@ class StudyForm(forms.ModelForm):
             elif any(site.pk not in allowed_site_ids for site in sites):
                 self.add_error('sites', 'Choose sites from your organisation.')
         return cleaned_data
+
+
+class ModerationCommentsForm(forms.Form):
+    comments = forms.CharField(
+        label='Comments for the coordinator',
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 4}),
+    )
+
+
+class ReasonForm(forms.Form):
+    reason = forms.CharField(
+        label='Reason',
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 4}),
+    )
+
+
+class OrganisationForm(forms.ModelForm):
+    class Meta:
+        model = Organisation
+        fields = ['name', 'org_type', 'contact_person', 'contact_email']
+        labels = {
+            'name': 'Name',
+            'org_type': 'Type',
+            'contact_person': 'Contact person',
+            'contact_email': 'Contact email',
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs['class'] = (
+                'form-select' if isinstance(field.widget, forms.Select)
+                else 'form-control'
+            )
+
+
+class SiteForm(forms.ModelForm):
+    class Meta:
+        model = Site
+        fields = ['name', 'address', 'postal_code', 'region']
+        labels = {
+            'name': 'Name',
+            'address': 'Address',
+            'postal_code': 'Postal code',
+            'region': 'Region',
+        }
+
+    def __init__(self, *args, organisation, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.organisation = organisation
+        for field in self.fields.values():
+            field.widget.attrs['class'] = (
+                'form-select' if isinstance(field.widget, forms.Select)
+                else 'form-control'
+            )
+
+    def save(self, commit=True):
+        site = super().save(commit=False)
+        site.organisation = self.organisation
+        if commit:
+            site.save()
+            self.save_m2m()
+        return site
+
+
+class CoordinatorForm(forms.Form):
+    first_name = forms.CharField(
+        label='First name', max_length=150,
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+    )
+    last_name = forms.CharField(
+        label='Last name', max_length=150,
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+    )
+    email = forms.EmailField(
+        label='Email', widget=forms.EmailInput(attrs={'class': 'form-control'}),
+    )
+    job_title = forms.CharField(
+        label='Job title', max_length=100,
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+    )
+    mobile = forms.CharField(
+        label='Mobile', widget=forms.TextInput(attrs={'class': 'form-control'}),
+    )
+    temporary_password = forms.CharField(
+        label='Temporary password',
+        widget=forms.PasswordInput(attrs={'class': 'form-control'}),
+    )
+
+    def clean_email(self):
+        email = self.cleaned_data['email'].strip().lower()
+        from django.contrib.auth.models import User
+        if User.objects.filter(username=email).exists():
+            raise forms.ValidationError('An account with this email already exists.')
+        return email
+
+    def clean_mobile(self):
+        return normalise_sg_mobile(self.cleaned_data['mobile'])
+
+
+class CategoryForm(forms.ModelForm):
+    ml_label = forms.CharField(
+        label='ML label',
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+    )
+
+    class Meta:
+        model = StudyCategory
+        fields = ['name', 'slug', 'ml_label', 'description', 'display_order']
+        labels = {
+            'name': 'Name',
+            'slug': 'Slug',
+            'description': 'Description',
+            'display_order': 'Order',
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs['class'] = 'form-control'
+        if self.instance.pk:
+            self.fields['ml_label'].disabled = True
+        else:
+            self.fields['ml_label'].help_text = (
+                'This label will not be predicted until ML-1 is retrained.'
+            )
+
+
+class ConditionForm(forms.ModelForm):
+    class Meta:
+        model = Condition
+        fields = ['name', 'ml_flag']
+        labels = {'name': 'Name', 'ml_flag': 'ML flag'}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs['class'] = (
+                'form-select' if isinstance(field.widget, forms.Select)
+                else 'form-control'
+            )
 
 
 class PreScreenQuestionForm(forms.ModelForm):

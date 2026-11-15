@@ -1,0 +1,60 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}{{ participant.code }} · Participants · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <h1>{{ participant.code }} · {{ participant.user.get_full_name }}</h1>
+  <div class="row g-4 mt-1">
+    <div class="col-xl-6">
+      <section class="card p-4 h-100">
+        <h2 class="h4">Profile</h2>
+        <dl class="row mb-0">
+          <dt class="col-sm-5">Email</dt><dd class="col-sm-7">{{ participant.user.email }}</dd>
+          <dt class="col-sm-5">Mobile</dt><dd class="col-sm-7">{{ participant.mobile }}</dd>
+          <dt class="col-sm-5">Date of birth</dt><dd class="col-sm-7">{{ participant.date_of_birth|default:"Not provided" }}</dd>
+          <dt class="col-sm-5">Age</dt><dd class="col-sm-7">{{ participant.age|default:"Not provided" }}</dd>
+          <dt class="col-sm-5">Sex</dt><dd class="col-sm-7">{{ participant.get_sex_display|default:"Not provided" }}</dd>
+          <dt class="col-sm-5">Region</dt><dd class="col-sm-7">{{ participant.region|default:"Not provided" }}</dd>
+          <dt class="col-sm-5">Ethnicity</dt><dd class="col-sm-7">{{ participant.get_ethnicity_display|default:"Not provided" }}</dd>
+          <dt class="col-sm-5">Employment</dt><dd class="col-sm-7">{{ participant.get_employment_display|default:"Not provided" }}</dd>
+          <dt class="col-sm-5">Education</dt><dd class="col-sm-7">{{ participant.get_education_display|default:"Not provided" }}</dd>
+          <dt class="col-sm-5">Height</dt><dd class="col-sm-7">{{ participant.height_cm|default:"Not provided" }}{% if participant.height_cm %} cm{% endif %}</dd>
+          <dt class="col-sm-5">Weight</dt><dd class="col-sm-7">{{ participant.weight_kg|default:"Not provided" }}{% if participant.weight_kg %} kg{% endif %}</dd>
+          <dt class="col-sm-5">BMI</dt><dd class="col-sm-7">{{ participant.bmi|default:"Not provided" }}</dd>
+          <dt class="col-sm-5">Smoker</dt><dd class="col-sm-7">{% if participant.smoker %}Yes{% else %}No{% endif %}</dd>
+          <dt class="col-sm-5">Activity level</dt><dd class="col-sm-7">{{ participant.get_activity_level_display|default:"Not provided" }}</dd>
+          <dt class="col-sm-5">Conditions</dt><dd class="col-sm-7">{% for condition in participant.conditions.all %}{{ condition.name }}{% if not forloop.last %}, {% endif %}{% empty %}None{% endfor %}</dd>
+          <dt class="col-sm-5">Motivation</dt><dd class="col-sm-7">{{ participant.get_motivation_display|default:"Not provided" }}</dd>
+          <dt class="col-sm-5">Availability</dt><dd class="col-sm-7">{{ participant.get_availability_display|default:"Not provided" }}</dd>
+          <dt class="col-sm-5">Maximum travel</dt><dd class="col-sm-7">{{ participant.get_max_travel_minutes_display|default:"Not provided" }}</dd>
+        </dl>
+      </section>
+    </div>
+    <div class="col-xl-6">
+      <section class="card p-4 mb-4">
+        <h2 class="h4">Consents</h2>
+        <dl class="row mb-0">
+          <dt class="col-8">Matching</dt><dd class="col-4">{% if participant.consent_matching %}Yes{% else %}No{% endif %}</dd>
+          <dt class="col-8">Insights</dt><dd class="col-4">{% if participant.consent_insights %}Yes{% else %}No{% endif %}</dd>
+          <dt class="col-8">Contact</dt><dd class="col-4">{% if participant.consent_contact %}Yes{% else %}No{% endif %}</dd>
+        </dl>
+      </section>
+      <section class="card p-4 mb-4">
+        <h2 class="h4">Applications</h2>
+        {% for application in applications %}
+          <div class="border-top py-2">
+            <a href="/panel/applications/{{ application.pk }}/">{{ application.reference }}</a> · {{ application.study.title }} · {{ application.get_status_display }}
+          </div>
+        {% empty %}<p class="mb-0">No applications.</p>{% endfor %}
+      </section>
+      <section class="card p-4">
+        <h2 class="h4">Payouts</h2>
+        {% for payout in payouts %}
+          <div class="border-top py-2">{{ payout.application.reference }} · {{ payout.amount }} · {{ payout.get_status_display }}{% if payout.reference %} · {{ payout.reference }}{% endif %}</div>
+        {% empty %}<p class="mb-0">No payouts.</p>{% endfor %}
+      </section>
+    </div>
+  </div>
+</div>
+{% endblock %}

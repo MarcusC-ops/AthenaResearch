@@ -1,0 +1,39 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}Sites · {{ organisation.name }} · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <h1>Sites · {{ organisation.name }}</h1>
+  <section class="card p-3 mb-4">
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead><tr><th>Name</th><th>Address</th><th>Postal code</th><th>Region</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {% for site in sites %}
+            <tr>
+              <td><a href="{% url 'adminpanel:site_edit' organisation.pk site.pk %}">{{ site.name }}</a></td>
+              <td>{{ site.address }}</td><td>{{ site.postal_code }}</td><td>{{ site.region.name }}</td>
+              <td><span class="badge text-bg-light">{% if site.is_active %}Active{% else %}Switched off{% endif %}</span></td>
+              <td class="text-nowrap">
+                {% if site.is_active %}<a href="{% url 'adminpanel:site_active' organisation.pk site.pk 'deactivate' %}">Deactivate</a>{% else %}<a href="{% url 'adminpanel:site_active' organisation.pk site.pk 'reactivate' %}">Reactivate</a>{% endif %}
+                {% if not site.studies.exists and not site.applications.exists and not site.appointments.exists %} · <a href="{% url 'adminpanel:site_delete' organisation.pk site.pk %}">Delete</a>{% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6">No sites yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="card p-4 form-narrow">
+    <h2 class="h4">Add site</h2>
+    <form method="post">
+      {% csrf_token %}
+      {% for field in form %}<div class="mb-3">{{ field.label_tag }}{{ field }}{% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}</div>{% endfor %}
+      <button class="btn btn-primary" type="submit">Add site</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

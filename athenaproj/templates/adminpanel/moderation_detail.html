@@ -1,0 +1,58 @@
+{% extends 'adminpanel/base_panel.html' %}
+
+{% block title %}{{ study.title }} · Moderation · Athena{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <h1 class="mb-4">{{ study.title }}</h1>
+  <div class="row g-4">
+    <div class="col-xl-7">
+      <section class="card p-3">
+        <h2 class="h4">Listing preview</h2>
+        {% include 'storefront/_study_body.html' with preview=True %}
+      </section>
+    </div>
+    <div class="col-xl-5">
+      <section class="card p-4 mb-4">
+        <h2 class="h4">Compliance checklist</h2>
+        <ul class="list-group list-group-flush">
+          {% for check in checks %}
+            <li class="list-group-item px-0">
+              <div class="d-flex justify-content-between gap-3"><strong>{{ check.label }}</strong><span class="badge {% if check.passed %}text-bg-success{% else %}text-bg-danger{% endif %}">{% if check.passed %}Pass{% else %}Fail{% endif %}</span></div>
+              {% if check.detail %}<div class="small mt-1">{{ check.detail }}</div>{% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+      <section class="card p-4">
+        <h2 class="h4">Decision</h2>
+        {% if study.status == 'pending_review' or study.status == 'paused' %}
+          <form method="post" class="mb-4">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="approve">
+            <button type="submit" class="btn btn-primary" {% if not all_pass %}disabled{% endif %}>Approve and publish</button>
+          </form>
+        {% endif %}
+        {% if study.status == 'pending_review' %}
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="return">
+            <div class="mb-3">
+              {{ comments_form.comments.label_tag }}
+              {{ comments_form.comments }}
+              {% for error in comments_form.comments.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+            </div>
+            <button type="submit" class="btn btn-outline-primary">Return with comments</button>
+          </form>
+        {% endif %}
+        {% if study.status == 'published' or study.status == 'full' %}
+          <a class="btn btn-outline-primary" href="{% url 'adminpanel:moderation_unpublish' study.pk %}">Unpublish</a>
+        {% endif %}
+        <hr>
+        <a href="{% url 'adminpanel:study_edit' study.pk %}">Edit listing</a>
+        <p class="small mt-2 mb-0">Staff may edit any field before deciding, including the target enrolment. The edit is recorded against you.</p>
+      </section>
+    </div>
+  </div>
+</div>
+{% endblock %}

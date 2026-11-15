@@ -1,10 +1,56 @@
 {% extends 'adminpanel/base_panel.html' %}
+{% load athena_filters %}
 
-{% block title %}Athena panel{% endblock %}
+{% block title %}Operations · Athena{% endblock %}
 
 {% block content %}
-  <div class="container-fluid">
-    <h1>Welcome, {{ user.first_name }}.</h1>
-    <p class="lead mt-3">{{ role_line }}</p>
+<div class="container-fluid">
+  <h1 class="mb-4">Operations</h1>
+  <div class="row g-3 mb-4">
+    <div class="col-md-6 col-xl-3"><a class="card p-3 h-100 text-decoration-none text-dark" href="/panel/moderation/?status=pending_review"><h2 class="h6">Listings awaiting moderation</h2><strong class="fs-3">{% if listing_count %}{{ listing_count }}{% else %}All clear{% endif %}</strong></a></div>
+    <div class="col-md-6 col-xl-3"><a class="card p-3 h-100 text-decoration-none text-dark" href="/panel/payouts/"><h2 class="h6">Payouts awaiting payment</h2><strong class="fs-3">{% if payout_count %}{{ payout_count }}{% else %}All clear{% endif %}</strong></a></div>
+    <div class="col-md-6 col-xl-3"><a class="card p-3 h-100 text-decoration-none text-dark" href="/panel/reviews/"><h2 class="h6">Reviews to moderate</h2><strong class="fs-3">{% if review_count %}{{ review_count }}{% else %}All clear{% endif %}</strong></a></div>
+    <div class="col-md-6 col-xl-3"><a class="card p-3 h-100 text-decoration-none text-dark" href="/panel/support/"><h2 class="h6">Support questions (open)</h2><strong class="fs-3">{% if support_count %}{{ support_count }}{% else %}All clear{% endif %}</strong></a></div>
   </div>
+  <div class="row g-4">
+    <div class="col-lg-6">
+      <section class="card p-4 h-100">
+        <h2 class="h4">Applications by priority band</h2>
+        <dl class="row mb-0">
+          {% for value, label in band_choices %}<dt class="col-8">{{ label }}</dt><dd class="col-4 text-end">{{ band_counts|get_item:value|default:0 }}</dd>{% endfor %}
+        </dl>
+      </section>
+    </div>
+    <div class="col-lg-6">
+      <section class="card p-4 h-100">
+        <h2 class="h4">Alerts</h2>
+        {% for alert in alerts %}
+          {% if alert.kind == 'irb' %}
+            <p class="mb-2"><a href="/panel/moderation/{{ alert.study.pk }}/">{{ alert.study.title }}</a> · IRB approval expires {{ alert.date|date:"j M Y" }}</p>
+          {% elif alert.kind == 'waitlist' %}
+            <p class="mb-2"><a href="/panel/studies/{{ alert.study.pk }}/applicants/">{{ alert.study.title }}</a> · {{ alert.count }} waiting</p>
+          {% else %}
+            <p class="text-danger mb-2">{{ alert }}</p>
+          {% endif %}
+        {% empty %}
+          <p class="mb-0">No alerts.</p>
+        {% endfor %}
+      </section>
+    </div>
+    <div class="col-lg-6">
+      <section class="card p-4 h-100">
+        <h2 class="h4">Studies by status</h2>
+        <dl class="row mb-0">
+          {% for value, label in study_status_choices %}<dt class="col-8">{{ label }}</dt><dd class="col-4 text-end">{{ study_status_counts|get_item:value|default:0 }}</dd>{% endfor %}
+        </dl>
+      </section>
+    </div>
+    <div class="col-lg-6">
+      <section class="card p-4 h-100">
+        <h2 class="h4">New participants</h2>
+        <p class="mb-0">{{ new_participants_7 }} in the last 7 days · {{ new_participants_30 }} in the last 30 days</p>
+      </section>
+    </div>
+  </div>
+</div>
 {% endblock %}
